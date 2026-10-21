@@ -82,6 +82,36 @@ test('tool loop runs tools, feeds results back, and returns the final call', asy
   assert.deepEqual(seen, [2, 4, 6]) // system+user, +assistant+tool, +assistant+nudge
 })
 
+test('tool loop forces an answer on the last step', async () => {
+  const offered = []
+  const api = {
+    chat: async ({ tools }) => {
+      offered.push(tools.map((t) => t.function.name))
+      const name = tools.length === 1 ? 'submit' : 'lookup'
+      return { message: { role: 'assistant', tool_calls: [{ function: { name, arguments: { q: 'x', answer: 'partial' } } }] }, usage: { input: 0, output: 0 } }
+    },
+  }
+  const out = await runToolLoop({
+    api, model: 'm', system: 's', user: 'u', finalTool: 'submit', maxSteps: 3,
+    tools: { lookup: { description: '', parameters: {}, run: async () => ({}) }, submit: { description: '', parameters: {}, run: async () => ({}) } },
+  })
+  assert.equal(out.result.answer, 'partial')
+  assert.deepEqual(offered, [['lookup', 'submit'], ['lookup', 'submit'], ['submit']])
+})
+
+test('scrape fetches a shared site once, and skips venues removed from config', { skip }, async () => {
+  for (const name of ['Spirit Hall', 'Spirit Lodge', 'Old Removed Venue']) {
+    await db.query(`insert into directory (name, kind, events_url, scrape) values ($1, 'venue', 'https://mrsmalls.example/events', true)`, [name])
+  }
+  const site = fakeSite()
+  const config = testConfig({ region: { venues: ['Spirit Hall', 'Spirit Lodge'] } })
+  const stats = await scrapeAndPost({ db, bsky: { post: async () => 'x' }, config, log: memoryLogger(), createMessage: extractModel(), fetchImpl: site.fetchImpl, now: NOW, sleep: async () => {} })
+  assert.equal(stats.venues, 1)
+  assert.equal(site.requests.filter((r) => r.url.endsWith('/events')).length, 1)
+  const { rows } = await db.query('select distinct venue from scraped_events')
+  assert.deepEqual(rows.map((r) => r.venue), ['Spirit Hall'])
+})
+
 // ─── integration ─────────────────────────────────────────────────────────────
 let db
 beforeEach(async () => { if (!skip) db = await freshDb() })
@@ -136,7 +166,8 @@ test('discovery follows verified active accounts and marks the rest for scraping
   })
   const bsky = fakeBskyForDiscovery()
   const log = memoryLogger()
-  const stats = await discoverAll({ db, bsky, ollama: fakeDiscoveryModel(), config, log })
+  const fetchImpl = async (url) => ({ ok: !url.includes('roxian.example/shows'), status: 200, url })
+  const stats = await discoverAll({ db, bsky, ollama: fakeDiscoveryModel(), config, log, fetchImpl })
   assert.equal(stats.checked, 4)
 
   const rows = Object.fromEntries((await db.query('select * from directory')).rows.map((r) => [r.name, r]))
@@ -146,8 +177,10 @@ test('discovery follows verified active accounts and marks the rest for scraping
   // no account: scrape the site
   assert.equal(rows['Mr. Smalls'].did, null)
   assert.equal(rows['Mr. Smalls'].scrape, true)
-  // fan account the model wrongly picked: not followed, site scraped instead
+  // fan account the model wrongly picked: not followed. Its claimed events page
+  // 404s, so the bot falls back to scraping the homepage.
   assert.equal(rows['Roxian Theatre'].verified, false)
+  assert.equal(rows['Roxian Theatre'].events_url, 'https://roxian.example')
   assert.equal(rows['Roxian Theatre'].scrape, true)
   // aggregator verified by domain handle; aggregators are never scraped
   assert.equal(rows['Pittsburgh City Paper'].did, 'did:plc:citypaper')
@@ -155,7 +188,7 @@ test('discovery follows verified active accounts and marks the rest for scraping
   assert.deepEqual(bsky.follows.sort(), ['did:plc:benedum', 'did:plc:citypaper'])
 
   // second pass within refresh_days: nothing re-checked
-  const again = await discoverAll({ db, bsky, ollama: fakeDiscoveryModel(), config, log })
+  const again = await discoverAll({ db, bsky, ollama: fakeDiscoveryModel(), config, log, fetchImpl })
   assert.equal(again.checked, 0)
   assert.equal(again.skipped_fresh, 4)
 })
@@ -163,7 +196,7 @@ test('discovery follows verified active accounts and marks the rest for scraping
 test('discovery in dry run records would-follow without following', { skip }, async () => {
   const config = testConfig({ region: { venues: ['Benedum Center'] }, discover: { aggregators: [] }, repost: { dry_run: true } })
   const bsky = fakeBskyForDiscovery()
-  await discoverAll({ db, bsky, ollama: fakeDiscoveryModel(), config, log: memoryLogger() })
+  await discoverAll({ db, bsky, ollama: fakeDiscoveryModel(), config, log: memoryLogger(), fetchImpl: async (url) => ({ ok: true, status: 200, url }) })
   assert.equal(bsky.follows.length, 0)
   const [row] = (await db.query('select follow_dry_run, followed_at from directory')).rows
   assert.equal(row.follow_dry_run, true)

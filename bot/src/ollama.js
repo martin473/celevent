@@ -58,8 +58,13 @@ export async function runToolLoop({ api, model, system, user, tools, finalTool, 
   const messages = [{ role: 'system', content: system }, { role: 'user', content: user }]
   const usage = { input: 0, output: 0 }
 
+  const finalOnly = specs.filter((t) => t.function.name === finalTool)
   for (let step = 0; step < maxSteps; step++) {
-    const { message, usage: u } = await api.chat({ model, messages, tools: specs })
+    // Last step: only the final tool is offered, so a model that keeps
+    // researching is made to answer with what it has instead of timing out.
+    const last = step === maxSteps - 1
+    if (last) messages.push({ role: 'user', content: `No more searches. Call ${finalTool} now with what you have found; leave unknown fields empty.` })
+    const { message, usage: u } = await api.chat({ model, messages, tools: last ? finalOnly : specs })
     usage.input += u.input
     usage.output += u.output
     messages.push(message)

@@ -177,7 +177,13 @@ export async function scrapeAndPost({
     const { rows: targets } = await db.query(
       `select name, events_url from directory where scrape and events_url is not null order by name`,
     )
-    const pages = [...targets, ...(sc.extra_pages ?? []).map((p) => ({ name: p.venue, events_url: p.url }))]
+    // Several directory names can share one site (renamed venues, rooms in one
+    // building). Scrape each URL once, under the first name, so its shows
+    // aren't posted twice under two venue names.
+    const seenUrls = new Set()
+    const configured = new Set(config.region.venues ?? []) // venues removed from config stop being scraped
+    const pages = [...targets.filter((t) => configured.has(t.name)), ...(sc.extra_pages ?? []).map((p) => ({ name: p.venue, events_url: p.url }))]
+      .filter((t) => { const k = t.events_url.replace(/\/+$/, '').toLowerCase(); if (seenUrls.has(k)) return false; seenUrls.add(k); return true })
     for (const t of pages) {
       stats.venues++
       const span = log.span('scrape.venue', { venue: t.name, url: t.events_url })
