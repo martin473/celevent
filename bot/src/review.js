@@ -36,7 +36,7 @@ export const DECISION_TOOL = {
             event_time: { type: 'string', description: 'Start or doors time as written, e.g. "8pm doors". Empty if unknown.' },
             reason: { type: 'string', description: 'One short sentence explaining the decision.' },
           },
-          required: ['id', 'is_event', 'is_local', 'confidence', 'reason'],
+          required: ['id', 'is_event', 'is_local', 'confidence', 'event_date', 'reason'],
         },
       },
     },
@@ -173,7 +173,9 @@ export function llmClient(env) {
 /** Turn the model's extraction into an accept/reject decision. Pure. */
 export function decide(raw, { config, today }) {
   const { min_confidence, window_days } = config.review
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(raw.event_date ?? '') ? raw.event_date : null
+  // Models sometimes put the date in `reason` and leave the field empty; recover it.
+  const ISO = /\b(\d{4}-\d{2}-\d{2})\b/
+  const date = raw.event_date?.match(ISO)?.[1] ?? raw.reason?.match(ISO)?.[1] ?? null
   const confidence = clamp01(Number(raw.confidence))
   let rejectCode = null
 

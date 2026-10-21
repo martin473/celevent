@@ -5,7 +5,8 @@ import { createLogger, errMsg } from './log.js'
 import { connectBluesky } from './bsky.js'
 import { llmClient } from './review.js'
 import { runOnce } from './pipeline.js'
-import { recentRuns, recentDecisions } from './store.js'
+import { recentRuns, recentDecisions, upcomingAccepted, rejectCounts } from './store.js'
+import { localToday } from './review.js'
 
 const USAGE = `celevent-bot <command>
 
@@ -92,14 +93,31 @@ async function main([cmd, ...args]) {
             `  lag_p50=${s.ingest_lag_sec?.p50 ?? '-'}s  ${s.duration_ms ?? '-'}ms`,
           )
         }
-        console.log('\nRecent decisions')
-        for (const d of await recentDecisions(db, 20)) {
-          const mark = d.reposted ? 'RT ' : d.accepted ? 'ok ' : '-- '
+        const today = localToday(config.region.timezone)
+        const upcoming = await upcomingAccepted(db, { today })
+        console.log(`\nUpcoming accepted events (${upcoming.length})  RT = reposted, dry = would repost`)
+        for (const d of upcoming) {
+          const mark = d.reposted ? 'RT ' : d.dry_reposted ? 'dry' : '   '
           console.log(
-            `  ${mark}${(d.event_date ?? '????-??-??')}  ${d.title ?? '(no title)'}` +
-            `${d.venue ? ' @ ' + d.venue : ''}  [${d.accepted ? 'accepted' : d.reject_code}` +
-            ` ${Number(d.confidence).toFixed(2)}]  @${d.author_handle ?? '?'}`,
+            `  ${mark} ${d.event_date}  ${d.title ?? '(no title)'}${d.venue ? ' @ ' + d.venue : ''}` +
+            `  [${Number(d.confidence).toFixed(2)}]  @${d.author_handle ?? '?'}`,
           )
+          console.log(`        https://bsky.app/profile/${d.uri.split('/')[2]}/post/${d.uri.split('/').pop()}`)
+        }
+        const counts = await rejectCounts(db, { since: new Date(Date.now() - 864e5) })
+        console.log('\nRejected in the last 24h: ' + (counts.map((c) => `${c.reject_code} ${c.n}`).join(', ') || 'none'))
+        if (args.includes('--all')) {
+          console.log('\nRecent decisions')
+          for (const d of await recentDecisions(db, 40)) {
+            const mark = d.accepted ? 'ok ' : '-- '
+            console.log(
+              `  ${mark}${(d.event_date ?? '????-??-??')}  ${d.title ?? '(no title)'}` +
+              `${d.venue ? ' @ ' + d.venue : ''}  [${d.accepted ? 'accepted' : d.reject_code}` +
+              ` ${Number(d.confidence).toFixed(2)}]  @${d.author_handle ?? '?'}  ${d.reason ?? ''}`,
+            )
+          }
+        } else {
+          console.log('(npm run status -- --all for every recent decision with reasons)')
         }
         break
       }

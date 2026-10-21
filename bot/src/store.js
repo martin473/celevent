@@ -172,6 +172,30 @@ export async function recentRuns(db, limit = 10) {
   return rows
 }
 
+/** Accepted events that haven't happened yet, soonest first. */
+export async function upcomingAccepted(db, { today, limit = 30 }) {
+  const { rows } = await db.query(
+    `select r.uri, r.title, r.venue, r.event_date::text as event_date, r.confidence,
+            c.author_handle,
+            exists (select 1 from reposts p where p.uri = r.uri and not p.dry_run) as reposted,
+            exists (select 1 from reposts p where p.uri = r.uri and p.dry_run) as dry_reposted
+     from reviews r join candidates c on c.uri = r.uri
+     where r.accepted and r.event_date >= $1::date
+     order by r.event_date, r.reviewed_at limit $2`,
+    [today, limit],
+  )
+  return rows
+}
+
+export async function rejectCounts(db, { since }) {
+  const { rows } = await db.query(
+    `select reject_code, count(*)::int as n from reviews
+     where not accepted and reviewed_at >= $1 group by reject_code order by n desc`,
+    [since],
+  )
+  return rows
+}
+
 export async function recentDecisions(db, limit = 20) {
   const { rows } = await db.query(
     `select r.uri, r.accepted, r.reject_code, r.confidence, r.title, r.venue,
