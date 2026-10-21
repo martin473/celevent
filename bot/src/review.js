@@ -186,9 +186,7 @@ export function decide(raw, { config, today }) {
   else if (date < today) rejectCode = 'past'
   else if (daysBetween(today, date) > window_days) rejectCode = 'too_far'
 
-  const eventKey = date && (raw.venue || raw.headliner || raw.title)
-    ? [date, slug(raw.venue), slug(raw.headliner || raw.title)].join('|')
-    : null
+  const eventKey = eventKeyFor({ date, venue: raw.venue, headliner: raw.headliner, title: raw.title }, config.region.venues)
 
   return {
     isEvent: Boolean(raw.is_event),
@@ -277,6 +275,24 @@ export function extractDecisions(response) {
   )
   const list = block?.input?.decisions
   return Array.isArray(list) ? list.filter((d) => d && typeof d.id === 'string') : []
+}
+
+/**
+ * Identity of an event across sources: date + venue + main act. Shared by
+ * reposts and scraped posts so the same show is never shared twice.
+ */
+export function eventKeyFor({ date, venue, headliner, title }, knownVenues = []) {
+  if (!date || !(venue || headliner || title)) return null
+  return [date, canonicalVenue(venue, knownVenues), slug(headliner || title)].join('|')
+}
+
+/** "Mr. Smalls Theatre" and "mr smalls" both map to the configured "Mr. Smalls". */
+export function canonicalVenue(venue, knownVenues = []) {
+  const v = slug(venue)
+  if (!v) return ''
+  const match = knownVenues.map(slug).filter((k) => k && (v.includes(k) || k.includes(v)))
+    .sort((a, b) => b.length - a.length)[0]
+  return match ?? v
 }
 
 const clamp01 = (n) => (Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0)

@@ -69,6 +69,33 @@
     "rewind_seconds": 5
   },
 
+  "discover": {
+    "aggregators": [
+      "Pittsburgh City Paper",
+      "91.3 WYEP",
+      "NEXTpittsburgh",
+      "WESA",
+      "Pittsburgh Magazine"
+    ],
+    "min_confidence": 0.7,
+    "active_within_days": 30,
+    "refresh_days": 30,
+    "max_steps": 8,
+    "auto_follow": true
+  },
+
+  "scrape": {
+    "enabled": true,
+    "interval_hours": 12,
+    "post_within_days": 10,
+    "max_posts_per_run": 5,
+    "max_posts_per_day": 15,
+    "max_page_chars": 20000,
+    "delay_ms": 2000,
+    "user_agent": "celevent-bot/0.1 (+https://github.com/martin473/celevent)",
+    "extra_pages": []
+  },
+
   "loop": {
     "interval_minutes": 20
   }

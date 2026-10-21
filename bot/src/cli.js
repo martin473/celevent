@@ -4,8 +4,9 @@ import { connect, migrate } from './db.js'
 import { createLogger, errMsg } from './log.js'
 import { connectBluesky } from './bsky.js'
 import { llmClient } from './review.js'
+import { ollamaApi } from './ollama.js'
 import { runOnce } from './pipeline.js'
-import { recentRuns, recentDecisions, upcomingAccepted, rejectCounts } from './store.js'
+import { recentRuns, recentDecisions, upcomingAccepted, rejectCounts, kvGet, kvSet } from './store.js'
 import { localToday } from './review.js'
 
 const USAGE = `celevent-bot <command>
@@ -15,6 +16,10 @@ const USAGE = `celevent-bot <command>
   run                one batch: collect -> LLM review -> repost
   loop               run every loop.interval_minutes until stopped
   stream             live Jetstream collector (pair with loop or cron'd run)
+  discover [name]    find venue/aggregator Bluesky accounts + events pages (Ollama web search)
+                     --force re-checks everything; a name limits it to matching targets
+  scrape             scrape venue events pages now and post upcoming shows
+  directory          what discovery found for each venue and aggregator
   status             recent runs and review decisions
 
 env: DATABASE_URL, DRY_RUN, an LLM (OLLAMA_API_KEY or ANTHROPIC_API_KEY), and either
@@ -58,11 +63,22 @@ async function main([cmd, ...args]) {
         const bsky = await connectBluesky({ db, config, log })
         const createMessage = llmClient(config.env)
         const everyMs = config.loop.interval_minutes * 60e3
+        const { discoverAll } = await import('./discover.js')
         while (!shutdown.signal.aborted) {
           try {
             await runOnce({ db, bsky, config, log, createMessage, now: new Date() })
           } catch (err) {
             log.error('run failed', { error: errMsg(err) })
+          }
+          // Discovery is slow and changes rarely: at most once a day, only targets
+          // older than discover.refresh_days.
+          if (config.env.ollamaApiKey) {
+            const last = await kvGet(db, 'discover:last_run')
+            if (!last || Date.now() - new Date(last) > 864e5) {
+              await discoverAll({ db, bsky, ollama: makeOllama(config), config, log })
+                .catch((err) => log.error('discover failed', { error: errMsg(err) }))
+              await kvSet(db, 'discover:last_run', new Date().toISOString())
+            }
           }
           await sleep(everyMs, shutdown.signal)
         }
@@ -80,6 +96,29 @@ async function main([cmd, ...args]) {
         break
       }
 
+      case 'discover': {
+        if (!config.env.ollamaApiKey) throw new Error('discover uses Ollama web search: set OLLAMA_API_KEY')
+        const { discoverAll } = await import('./discover.js')
+        const bsky = await connectBluesky({ db, config, log })
+        const only = args.find((a) => !a.startsWith('--'))
+        await discoverAll({ db, bsky, ollama: makeOllama(config), config, log, force: args.includes('--force'), only })
+        await kvSet(db, 'discover:last_run', new Date().toISOString())
+        await printDirectory(db)
+        break
+      }
+
+      case 'scrape': {
+        const { scrapeAndPost } = await import('./scrape.js')
+        const bsky = await connectBluesky({ db, config, log })
+        const stats = await scrapeAndPost({ db, bsky, config, log, createMessage: llmClient(config.env), force: true })
+        log.info('scrape summary', stats)
+        break
+      }
+
+      case 'directory':
+        await printDirectory(db)
+        break
+
       case 'status': {
         const runs = await recentRuns(db, 10)
         console.log('\nRecent runs')
@@ -90,6 +129,7 @@ async function main([cmd, ...args]) {
             `  new=${s.collect?.new ?? '-'} pending=${s.collect?.pending ?? '-'}` +
             `  reviewed=${s.review?.reviewed ?? '-'} accepted=${s.review?.accepted ?? '-'}` +
             `  reposted=${s.repost?.reposted ?? '-'}${s.repost?.dry_run ? ' (dry)' : ''}` +
+            `  own_posts=${s.scrape?.posted ?? '-'}` +
             `  lag_p50=${s.ingest_lag_sec?.p50 ?? '-'}s  ${s.duration_ms ?? '-'}ms`,
           )
         }
@@ -128,6 +168,36 @@ async function main([cmd, ...args]) {
     }
   } finally {
     await db.end()
+  }
+}
+
+function makeOllama(config) {
+  return ollamaApi({ host: config.env.ollamaHost, apiKey: config.env.ollamaApiKey })
+}
+
+async function printDirectory(db) {
+  const { rows } = await db.query(
+    `select name, kind, handle, did, verified, verify_note, events_url, scrape, followed_at,
+            follow_dry_run, last_post_at
+     from directory order by kind desc, name`,
+  )
+  console.log(`\nDirectory (${rows.length})  F = followed, f = would follow (dry run), S = scraping site`)
+  for (const r of rows) {
+    const flags = `${r.followed_at ? (r.follow_dry_run ? 'f' : 'F') : ' '}${r.scrape ? 'S' : ' '}`
+    const acct = r.did ? '@' + r.handle : r.handle ? `(@${r.handle}? ${r.verify_note})` : '(no Bluesky account)'
+    console.log(`  ${flags} ${r.kind === 'venue' ? 'venue' : 'aggr '}  ${r.name.padEnd(26)} ${acct}`)
+    if (r.events_url) console.log(`              events: ${r.events_url}`)
+  }
+  const { rows: ev } = await db.query(
+    `select s.event_date::text as d, s.title, s.venue,
+            exists (select 1 from own_posts o where o.event_key = s.event_key and not o.dry_run) as posted,
+            exists (select 1 from own_posts o where o.event_key = s.event_key and o.dry_run) as dry
+     from scraped_events s where s.event_date >= current_date and s.is_music
+     order by s.event_date limit 25`,
+  )
+  if (ev.length) {
+    console.log(`\nScraped upcoming shows  P = posted, dry = would post`)
+    for (const e of ev) console.log(`  ${e.posted ? 'P  ' : e.dry ? 'dry' : '   '} ${e.d}  ${e.title} @ ${e.venue}`)
   }
 }
 

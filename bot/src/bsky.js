@@ -34,6 +34,39 @@ export function wrapAgent(agent, did) {
       const res = await agent.repost(uri, cid)
       return res.uri
     },
+    async searchActors(q) {
+      const { data } = await agent.app.bsky.actor.searchActors({ q, limit: 10 })
+      return data.actors.map((a) => ({
+        did: a.did, handle: a.handle, displayName: a.displayName ?? '', description: a.description ?? '',
+      }))
+    },
+    async getProfile(actor) {
+      const { data } = await agent.app.bsky.actor.getProfile({ actor })
+      return {
+        did: data.did, handle: data.handle, displayName: data.displayName ?? '',
+        description: data.description ?? '', followersCount: data.followersCount ?? 0,
+        postsCount: data.postsCount ?? 0, following: Boolean(data.viewer?.following),
+      }
+    },
+    async follow(did) {
+      const res = await agent.follow(did)
+      return res.uri
+    },
+    /** Original post with auto-detected link facets and an optional link card. */
+    async post({ text, link }) {
+      const { RichText } = await import('@atproto/api')
+      const rt = new RichText({ text })
+      await rt.detectFacets(agent)
+      const record = { text: rt.text, facets: rt.facets, createdAt: new Date().toISOString(), langs: ['en'] }
+      if (link) {
+        record.embed = {
+          $type: 'app.bsky.embed.external',
+          external: { uri: link.uri, title: link.title ?? '', description: link.description ?? '' },
+        }
+      }
+      const res = await agent.post(record)
+      return res.uri
+    },
   }
 }
 

@@ -37,6 +37,52 @@ To keep it running: `npm run loop` (every `loop.interval_minutes`), or cron
 `npm run run-once`. Optionally run `npm run stream` alongside it to pick up
 posts live from Jetstream instead of waiting for the next search.
 
+## Finding venue accounts and scraping venue websites
+
+```bash
+npm run discover            # look up every venue and aggregator (skips ones checked < 30 days ago)
+npm run discover -- Benedum # just one
+npm run discover -- --force # re-check everything
+npm run directory           # what it found, and scraped shows
+npm run scrape              # scrape now instead of waiting for the next run
+```
+
+**Discovery** (needs `OLLAMA_API_KEY`). For each venue in `region.venues` and
+each aggregator in `discover.aggregators` (City Paper, WYEP, ...), the model
+runs as an agent with three tools: Bluesky account search, Ollama web search,
+and Ollama web fetch. It reports the official Bluesky handle (or none), the
+official website, and the events page.
+
+The model's answer is checked in code before anything is followed: the handle
+must be the organization's domain, or the profile must link the official site,
+or the display name/handle must match the name. Fan accounts and lookalikes
+fail that check. Verified accounts are followed, which makes them a source for
+the normal repost pipeline. `npm run loop` repeats discovery once a day for
+entries older than `discover.refresh_days`.
+
+**Scraping.** A venue is scraped when it has an events page but no verified
+account, or its account hasn't posted in `discover.active_within_days`. The
+bot reads the page's schema.org event data (JSON-LD) and visible text, the LLM
+turns that into dated events, and upcoming music shows within
+`scrape.post_within_days` are posted from the bot account:
+
+```
+🎶 Speedy Ortiz w/ Dazy
+📅 Sat, Oct 24 · 8pm
+📍 Mr. Smalls
+
+https://venue-site/event-page
+```
+
+Posts carry the facts and a link card back to the venue; descriptions aren't
+copied. robots.txt is honored, requests send a `celevent-bot` User-Agent, pages
+are fetched at most every `scrape.interval_hours`, with a pause between sites.
+The same event is never shared twice: a show that was reposted from the
+venue's own post isn't posted again, and vice versa (matched on date + venue +
+headliner, with venue names normalized). Following and posting both obey
+`DRY_RUN`. Add pages discovery misses with `scrape.extra_pages`:
+`[{ "venue": "Mr. Smalls", "url": "https://..." }]`.
+
 ## Choosing what it watches
 
 Everything is in `config.json`:
@@ -174,6 +220,9 @@ bot/
     prefilter.js      cheap event + location scoring
     review.js         prompt, schema, Ollama + Claude clients, decision rules
     repost.js         caps, dry run, same-event dedupe
+    discover.js       agent that finds venue accounts + events pages; verification; follows
+    scrape.js         robots.txt, JSON-LD + text extraction, posts for scraped shows
+    ollama.js         Ollama chat with tools, web search, web fetch
     bsky.js           thin Bluesky client + app-password auth
     oauth.js          OAuth/DPoP login, Postgres stores, advisory lock
     store.js          all SQL

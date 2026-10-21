@@ -17,6 +17,9 @@
     "stream": "node --env-file-if-exists=.env src/cli.js stream",
     "login": "node --env-file-if-exists=.env src/cli.js login",
     "status": "node --env-file-if-exists=.env src/cli.js status",
+    "discover": "node --env-file-if-exists=.env src/cli.js discover",
+    "scrape": "node --env-file-if-exists=.env src/cli.js scrape",
+    "directory": "node --env-file-if-exists=.env src/cli.js directory",
     "test": "node --env-file-if-exists=.env --test test/*.test.js"
   },
   "dependencies": {

@@ -126,6 +126,10 @@ export async function repostQueue(db, { today, limit, dryRun }) {
        and (r.event_key is null
             or not exists (select 1 from reposts p
                            where p.event_key = r.event_key and p.dry_run = $3))
+       -- already shared as one of our own posts from a venue website
+       and (r.event_key is null
+            or not exists (select 1 from own_posts o
+                           where o.event_key = r.event_key and o.dry_run = $3))
      order by r.event_date asc, c.created_at asc
      limit $2`,
     [today, limit, dryRun],
