@@ -24,7 +24,8 @@
     "start": "node src/cli.js serve",
     "publish-feed": "node --env-file-if-exists=.env src/cli.js publish-feed",
     "oauth-keygen": "node src/cli.js oauth-keygen",
-    "test": "node --env-file-if-exists=.env --test test/*.test.js"
+    "test": "node --env-file-if-exists=.env --test test/*.test.js",
+    "test:coverage": "node --env-file-if-exists=.env --test --experimental-test-coverage --test-coverage-exclude=\"test/**\" --test-coverage-lines=85 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=lcov.info --test-reporter=tap --test-reporter-destination=test.tap test/*.test.js"
   },
   "dependencies": {
     "@atproto/api": "^0.29.1",

@@ -339,7 +339,12 @@ or blocked posts leave the repost queue instead of failing forever.
 
 ```bash
 TEST_DATABASE_URL=postgres://celevent:celevent@localhost:5432/celevent npm test
+TEST_DATABASE_URL=... npm run test:coverage   # same 54 tests, plus line coverage of src/ (fails under 85%)
 ```
+
+CI (`.github/workflows/bot.yml`) runs `test:coverage` on every push and pull
+request against a Postgres 16 service, uploads `lcov.info` as an artifact, and
+publishes the coverage number shown in the README badge.
 
 Unit tests cover the prefilter, normalization, decision rules, prompt escaping,
 and API retry. Integration tests run the whole pipeline against a real

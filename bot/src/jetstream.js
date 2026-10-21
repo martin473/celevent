@@ -24,6 +24,7 @@ export async function runJetstream({
   connect = (url) => new WebSocket(url),
   signal,
   now = () => new Date(),
+  sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
 }) {
   const jc = config.jetstream
   const regionRe = compileRegion(config.region)
@@ -108,7 +109,7 @@ export async function runJetstream({
       })
       if (signal?.aborted) break
       log.warn('jetstream disconnected, reconnecting', { reason: closed, backoff_ms: backoffMs })
-      await new Promise((r) => setTimeout(r, backoffMs))
+      await sleep(backoffMs)
       backoffMs = Math.min(backoffMs * 2, 60e3)
     }
   } finally {

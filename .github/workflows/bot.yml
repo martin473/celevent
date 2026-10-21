@@ -9,6 +9,8 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # to publish the coverage badge data to the `badges` branch
     services:
       postgres:
         image: postgres:16
@@ -29,9 +31,46 @@ jobs:
         with:
           node-version: 22
       - run: npm install --no-audit --no-fund
-      - run: npm test
+
+      # All 54 tests against the real Postgres service. Fails the build if any
+      # test fails or line coverage of src/ drops below 85%.
+      - name: Test with coverage
+        run: npm run test:coverage
         env:
           TEST_DATABASE_URL: postgres://celevent:celevent@localhost:5432/celevent
+
+      - name: Annotate failing tests
+        if: failure()
+        run: |
+          [ -f test.tap ] || exit 0
+          grep -E '^ *not ok' test.tap | while read -r line; do echo "::error title=Test failed::$line"; done
+          grep -A12 -E '^ *not ok' test.tap | grep -E "error:|expected|actual|location" | head -40 | while read -r line; do echo "::error::$line"; done
+
+      - name: Coverage summary
+        if: always() && hashFiles('bot/lcov.info') != ''
+        run: |
+          node scripts/coverage-badge.js | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=Coverage::$(node scripts/coverage-badge.js)"
+
+      - uses: actions/upload-artifact@v4
+        if: always() && hashFiles('bot/lcov.info') != ''
+        with:
+          name: coverage-lcov
+          path: bot/lcov.info
+
+      # The README badge reads coverage.json from the `badges` branch.
+      - name: Publish coverage badge
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          cp coverage.json /tmp/coverage.json
+          cd "$RUNNER_TEMP"
+          git init -q badges && cd badges
+          git checkout -q -b badges
+          cp /tmp/coverage.json coverage.json
+          git add coverage.json
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+            commit -qm "Coverage badge for ${GITHUB_SHA::7}"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" badges
 
   # Deploys main to Fly.io after tests pass, once a FLY_API_TOKEN repo secret exists.
   deploy:

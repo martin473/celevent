@@ -52,21 +52,11 @@ test('jetstream keeps matching posts, checkpoints the cursor, and resumes with r
   }
   const log = memoryLogger()
 
-  // Stop after the second connection has drained.
-  const origSetTimeout = globalThis.setTimeout
+  // Skip the reconnect backoff, and stop after the second connection has drained.
+  // (Stubbing global setTimeout instead would also catch pg's pool timers.)
   let reconnects = 0
-  globalThis.setTimeout = (fn, ms, ...rest) => {
-    if (ms >= 1000 && ms <= 60e3) { // reconnect backoff: skip the wait
-      if (++reconnects >= 2) ac.abort()
-      return origSetTimeout(fn, 0, ...rest)
-    }
-    return origSetTimeout(fn, ms, ...rest)
-  }
-  try {
-    await runJetstream({ db, bsky, config, log, connect, signal: ac.signal, now: () => NOW })
-  } finally {
-    globalThis.setTimeout = origSetTimeout
-  }
+  const sleep = async () => { if (++reconnects >= 2) ac.abort() }
+  await runJetstream({ db, bsky, config, log, connect, signal: ac.signal, now: () => NOW, sleep })
 
   const rows = (await db.query('select uri, status, sources from candidates order by uri')).rows
   assert.deepEqual(rows.map((r) => r.uri).sort(), [
