@@ -107,7 +107,7 @@
   "feed": {
     "rkey": "pgh-shows",
     "days": 7,
-    "display_name": "Pittsburgh Shows This Week",
+    "display_name": "PGH Shows This Week",
     "description": "Upcoming live music in Pittsburgh over the next 7 days, from venues, bands, and local press. Curated by an LLM-vetted bot."
   },
 

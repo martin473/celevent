@@ -24,9 +24,15 @@ export function feedConfig(config) {
     endpoint: `https://${host}`,
     rkey: config.feed?.rkey ?? 'pgh-shows',
     days: config.feed?.days ?? 7,
-    displayName: config.feed?.display_name ?? 'Pittsburgh Shows This Week',
-    description: config.feed?.description ?? 'Upcoming live music in Pittsburgh over the next 7 days.',
+    // Bluesky's lexicon caps these at 24 and 300 graphemes.
+    displayName: clip(config.feed?.display_name ?? 'PGH Shows This Week', 24),
+    description: clip(config.feed?.description ?? 'Upcoming live music in Pittsburgh over the next 7 days.', 300),
   }
+}
+
+function clip(text, max) {
+  const g = [...new Intl.Segmenter().segment(text)].map((x) => x.segment)
+  return g.length <= max ? text : g.slice(0, max - 1).join('').trimEnd() + '…'
 }
 
 export async function feedUri(db, fc) {

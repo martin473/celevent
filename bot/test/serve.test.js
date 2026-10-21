@@ -188,3 +188,12 @@ test('server: dashboard renders runs, upcoming shows, and decisions', { skip }, 
     assert.doesNotMatch(html, /<script/)
   })
 })
+
+test('feed name and description fit Bluesky limits', async () => {
+  const { feedConfig } = await import('../src/feed.js')
+  const c = cfg({ feed: { display_name: 'Pittsburgh Shows This Week Extra Long', description: 'x'.repeat(400) } })
+  const fc = feedConfig(c)
+  assert.ok([...new Intl.Segmenter().segment(fc.displayName)].length <= 24)
+  assert.ok([...new Intl.Segmenter().segment(fc.description)].length <= 300)
+  assert.equal(feedConfig(cfg()).displayName, 'PGH Shows This Week')
+})
