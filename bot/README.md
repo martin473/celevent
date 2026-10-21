@@ -23,7 +23,7 @@ promoters actually announce shows.
 ```bash
 cd bot
 docker compose up -d          # Postgres 16
-cp .env.example .env          # add ANTHROPIC_API_KEY and the bot's app password
+cp .env.example .env          # add OLLAMA_API_KEY (or ANTHROPIC_API_KEY) and the bot's app password
 npm install
 npm run migrate
 npm run run-once              # one batch; DRY_RUN=1 by default
@@ -69,9 +69,9 @@ Everything is in `config.json`:
 4. **Dedupe.** Candidates are keyed by AT-URI, so a post found by three sources
    is stored once. Posts whose normalized text matches one already queued
    (copy-pasted flyers, cross-posts) are marked `duplicate` before review.
-5. **Review.** Pending posts go to Claude in batches of 20. The model must
-   answer through a `record_decisions` tool call, so the output is always
-   structured. It extracts title, headliner, venue, and date and says whether
+5. **Review.** Pending posts go to the LLM in batches of 20, and the reply is
+   always structured JSON: a forced `record_decisions` tool call with Claude,
+   or the same schema as Ollama's `format` (structured outputs). It extracts title, headliner, venue, and date and says whether
    it's a local upcoming event. The accept/reject rules (confidence threshold,
    date window) are applied in code, not in the prompt, so they're testable.
    Post text is wrapped and escaped, and the model is told it's untrusted data,
@@ -80,6 +80,20 @@ Everything is in `config.json`:
    skipped when another post about the **same event** (same date, venue, and
    headliner) was already reposted, so the venue and the band announcing the
    same show produce one repost, not two.
+
+## LLM backend: Ollama or Claude
+
+- **Ollama Cloud**: set `OLLAMA_API_KEY` (from ollama.com/settings/keys). Requests
+  go to `https://ollama.com/api/chat`. Default model `gpt-oss:20b`; try
+  `CELEVENT_MODEL=gpt-oss:120b` if decisions look shaky.
+- **Local Ollama**: leave the key empty, set `OLLAMA_HOST=http://localhost:11434`,
+  and `ollama pull` a model that handles JSON well (e.g. `qwen3:8b`), then set
+  `CELEVENT_MODEL` to it.
+- **Claude**: set `ANTHROPIC_API_KEY` (default `claude-haiku-5-5`).
+
+`LLM_PROVIDER=ollama|anthropic` forces one. Both backends feed the same review
+loop and the same accept rules, so switching models only changes the
+extraction quality, which `npm run status` lets you check during dry runs.
 
 ## Auth: app password or OAuth with DPoP
 
@@ -158,7 +172,7 @@ bot/
     jetstream.js      live firehose collector with checkpointed cursor
     normalize.js      post views / Jetstream records -> candidates
     prefilter.js      cheap event + location scoring
-    review.js         prompt, tool schema, Messages API client, decision rules
+    review.js         prompt, schema, Ollama + Claude clients, decision rules
     repost.js         caps, dry run, same-event dedupe
     bsky.js           thin Bluesky client + app-password auth
     oauth.js          OAuth/DPoP login, Postgres stores, advisory lock

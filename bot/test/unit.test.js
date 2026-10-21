@@ -167,3 +167,53 @@ test('percentile', () => {
   assert.equal(percentile([5, 1, 3], 50), 3)
   assert.equal(percentile([1, 2, 3, 4, 100], 95), 100)
 })
+
+test('ollama client sends a schema-constrained chat and returns the Anthropic shape', async () => {
+  const { ollamaClient, DECISION_TOOL } = await import('../src/review.js')
+  let sent
+  const fetchImpl = async (url, init) => {
+    sent = { url, headers: init.headers, body: JSON.parse(init.body) }
+    const decisions = [{ id: 'p1', is_event: true, is_local: true, confidence: 0.9, reason: 'show' }]
+    return {
+      ok: true, status: 200,
+      json: async () => ({
+        message: { role: 'assistant', content: '```json\n' + JSON.stringify({ decisions }) + '\n```' },
+        done_reason: 'stop', prompt_eval_count: 321, eval_count: 45,
+      }),
+    }
+  }
+  const call = ollamaClient({ host: 'https://ollama.com/', apiKey: 'sk-test', fetchImpl })
+  const res = await call({
+    model: 'gpt-oss:20b', max_tokens: 900, temperature: 0, system: 'SYS',
+    tools: [DECISION_TOOL], tool_choice: { type: 'tool', name: 'record_decisions' },
+    messages: [{ role: 'user', content: '<post id="p1">x</post>' }],
+  })
+  assert.equal(sent.url, 'https://ollama.com/api/chat')
+  assert.equal(sent.headers.authorization, 'Bearer sk-test')
+  assert.equal(sent.body.stream, false)
+  assert.deepEqual(sent.body.format, DECISION_TOOL.input_schema)
+  assert.deepEqual(sent.body.messages.map((m) => m.role), ['system', 'user'])
+  assert.match(sent.body.messages[0].content, /^SYS/)
+  assert.equal(extractDecisions(res)[0].id, 'p1') // fenced JSON still parsed
+  assert.deepEqual(res.usage, { input_tokens: 321, output_tokens: 45 })
+
+  const local = ollamaClient({ fetchImpl })
+  await local({ model: 'm', system: 's', messages: [] })
+  assert.equal(sent.url, 'http://localhost:11434/api/chat')
+  assert.equal(sent.headers.authorization, undefined)
+})
+
+test('provider is chosen from env', async () => {
+  const { loadConfig } = await import('../src/config.js')
+  const base = { BSKY_APP_PASSWORD: 'x' }
+  const ol = loadConfig({ env: { ...base, OLLAMA_API_KEY: 'k' } })
+  assert.equal(ol.env.llmProvider, 'ollama')
+  assert.equal(ol.env.ollamaHost, 'https://ollama.com')
+  assert.equal(ol.review.model, 'gpt-oss:20b')
+  const local = loadConfig({ env: { ...base, OLLAMA_HOST: 'http://localhost:11434', CELEVENT_MODEL: 'qwen3:8b' } })
+  assert.equal(local.env.llmProvider, 'ollama')
+  assert.equal(local.review.model, 'qwen3:8b')
+  const cl = loadConfig({ env: { ...base, ANTHROPIC_API_KEY: 'k' } })
+  assert.equal(cl.env.llmProvider, 'anthropic')
+  assert.equal(cl.review.model, 'claude-haiku-5-5')
+})

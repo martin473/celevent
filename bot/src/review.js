@@ -98,6 +98,78 @@ export function anthropicClient({ apiKey, baseUrl = 'https://api.anthropic.com',
   }
 }
 
+/**
+ * Ollama backend, local (http://localhost:11434) or Ollama Cloud
+ * (https://ollama.com with OLLAMA_API_KEY). It takes the same request body as
+ * the Anthropic client and returns the same response shape, so the review
+ * loop doesn't know which model it's talking to.
+ *
+ * Instead of a tool call, the decision schema is passed as Ollama's `format`
+ * (structured outputs), which constrains the reply to JSON matching it.
+ */
+export function ollamaClient({ host = 'http://localhost:11434', apiKey, fetchImpl = fetch, sleep }) {
+  const wait = sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)))
+  const base = host.replace(/\/+$/, '')
+  return async function createMessage(body) {
+    const tool = body.tools?.[0] ?? DECISION_TOOL
+    const request = {
+      model: body.model,
+      stream: false,
+      format: tool.input_schema,
+      options: { temperature: body.temperature ?? 0, num_predict: body.max_tokens },
+      messages: [
+        {
+          role: 'system',
+          content: `${body.system}\n\nReply with only a JSON object matching this schema (no prose): ${JSON.stringify(tool.input_schema)}`,
+        },
+        ...body.messages,
+      ],
+    }
+    let lastErr
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const res = await fetchImpl(`${base}/api/chat`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+        },
+        body: JSON.stringify(request),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        return {
+          content: [{ type: 'tool_use', name: tool.name, input: parseJsonLoose(data.message?.content) }],
+          stop_reason: data.done_reason ?? 'stop',
+          usage: { input_tokens: data.prompt_eval_count ?? 0, output_tokens: data.eval_count ?? 0 },
+        }
+      }
+      const detail = await res.text().catch(() => '')
+      lastErr = new Error(`ollama ${res.status}: ${detail.slice(0, 300)}`)
+      if (res.status !== 429 && res.status < 500) throw lastErr
+      await wait(1000 * 2 ** attempt)
+    }
+    throw lastErr
+  }
+}
+
+/** JSON.parse that tolerates code fences or chatter around the object. */
+export function parseJsonLoose(text) {
+  if (!text) return {}
+  try { return JSON.parse(text) } catch {}
+  const start = text.indexOf('{')
+  const end = text.lastIndexOf('}')
+  if (start >= 0 && end > start) {
+    try { return JSON.parse(text.slice(start, end + 1)) } catch {}
+  }
+  return {}
+}
+
+/** Pick the LLM backend from config. */
+export function llmClient(env) {
+  if (env.llmProvider === 'ollama') return ollamaClient({ host: env.ollamaHost, apiKey: env.ollamaApiKey })
+  return anthropicClient({ apiKey: env.anthropicApiKey, baseUrl: env.anthropicBaseUrl })
+}
+
 /** Turn the model's extraction into an accept/reject decision. Pure. */
 export function decide(raw, { config, today }) {
   const { min_confidence, window_days } = config.review

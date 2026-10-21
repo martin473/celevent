@@ -3,7 +3,7 @@ import { loadConfig } from './config.js'
 import { connect, migrate } from './db.js'
 import { createLogger, errMsg } from './log.js'
 import { connectBluesky } from './bsky.js'
-import { anthropicClient } from './review.js'
+import { llmClient } from './review.js'
 import { runOnce } from './pipeline.js'
 import { recentRuns, recentDecisions } from './store.js'
 
@@ -16,7 +16,7 @@ const USAGE = `celevent-bot <command>
   stream             live Jetstream collector (pair with loop or cron'd run)
   status             recent runs and review decisions
 
-env: DATABASE_URL, ANTHROPIC_API_KEY, DRY_RUN, and either
+env: DATABASE_URL, DRY_RUN, an LLM (OLLAMA_API_KEY or ANTHROPIC_API_KEY), and either
      BSKY_IDENTIFIER + BSKY_APP_PASSWORD, or an OAuth login (BSKY_AUTH=oauth)`
 
 async function main([cmd, ...args]) {
@@ -47,9 +47,7 @@ async function main([cmd, ...args]) {
 
       case 'run': {
         const bsky = await connectBluesky({ db, config, log })
-        const createMessage = anthropicClient({
-          apiKey: config.env.anthropicApiKey, baseUrl: config.env.anthropicBaseUrl,
-        })
+        const createMessage = llmClient(config.env)
         const { ok } = await runOnce({ db, bsky, config, log, createMessage })
         process.exitCode = ok ? 0 : 1
         break
@@ -57,9 +55,7 @@ async function main([cmd, ...args]) {
 
       case 'loop': {
         const bsky = await connectBluesky({ db, config, log })
-        const createMessage = anthropicClient({
-          apiKey: config.env.anthropicApiKey, baseUrl: config.env.anthropicBaseUrl,
-        })
+        const createMessage = llmClient(config.env)
         const everyMs = config.loop.interval_minutes * 60e3
         while (!shutdown.signal.aborted) {
           try {
