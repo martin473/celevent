@@ -93,6 +93,7 @@
     "max_posts_per_day": 15,
     "max_page_chars": 20000,
     "delay_ms": 2000,
+    "respect_robots": false,
     "user_agent": "celevent-bot/0.1 (+https://github.com/martin473/celevent)",
     "extra_pages": [],
     "guide_pages": [

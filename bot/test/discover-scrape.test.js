@@ -283,11 +283,11 @@ test('scrape extracts events, skips what was already shared, and posts the rest'
   assert.equal(posts.length, 1)
 })
 
-test('scrape honors robots.txt', { skip }, async () => {
+test('scrape honors robots.txt when respect_robots is on', { skip }, async () => {
   await seedScrapeTarget()
   const site = fakeSite({ robots: 'User-agent: *\nDisallow: /events' })
   const calls = []
-  const stats = await scrapeAndPost({ db, bsky: {}, config: testConfig(), log: memoryLogger(), createMessage: extractModel(calls), fetchImpl: site.fetchImpl, now: NOW, sleep: async () => {} })
+  const stats = await scrapeAndPost({ db, bsky: {}, config: testConfig({ scrape: { respect_robots: true } }), log: memoryLogger(), createMessage: extractModel(calls), fetchImpl: site.fetchImpl, now: NOW, sleep: async () => {} })
   assert.equal(stats.robots_blocked, 1)
   assert.equal(stats.pages_fetched, 0)
   assert.equal(calls.length, 0)
@@ -362,4 +362,13 @@ test('links to event guides posted by followed aggregators are queued for scrapi
   assert.equal(stats.guides_queued, 1)
   const { rows } = await db.query('select url, source from guide_pages')
   assert.deepEqual(rows, [{ url: 'https://www.paper.example/arts/october-event-guide/', source: 'bsky:paper.example' }])
+})
+
+test('respect_robots: false skips the robots.txt check entirely', { skip }, async () => {
+  await seedScrapeTarget()
+  const site = fakeSite({ robots: 'User-agent: *\nDisallow: /' })
+  const stats = await scrapeAndPost({ db, bsky: { post: async () => 'x' }, config: testConfig({ scrape: { respect_robots: false } }), log: memoryLogger(), createMessage: extractModel(), fetchImpl: site.fetchImpl, now: NOW, sleep: async () => {} })
+  assert.equal(stats.robots_blocked, 0)
+  assert.equal(stats.pages_fetched, 1)
+  assert.equal(site.requests.filter((r) => r.url.endsWith('/robots.txt')).length, 0)
 })

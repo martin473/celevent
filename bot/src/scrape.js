@@ -14,7 +14,8 @@ import { errMsg } from './log.js'
  * time, url, is_music}. The LLM only reads what's on the page; dates it can't
  * find on the page are dropped.
  *
- * Etiquette: robots.txt is honored, requests identify the bot with a
+ * Etiquette: robots.txt is honored unless scrape.respect_robots is false,
+ * requests identify the bot with a
  * User-Agent, there's a pause between hosts, and each venue is fetched at
  * most once per `scrape.interval_hours`. Posts carry facts (who, when,
  * where) and a link back to the venue, not copied descriptions.
@@ -188,7 +189,7 @@ export async function scrapeAndPost({
       stats.venues++
       const span = log.span('scrape.venue', { venue: t.name, url: t.events_url })
       try {
-        const page = await fetchPage(t.events_url, { fetchImpl, userAgent: sc.user_agent, stats })
+        const page = await fetchPage(t.events_url, { fetchImpl, userAgent: sc.user_agent, stats, respectRobots: sc.respect_robots !== false })
         if (!page) { span.end({ skipped: true }); continue }
         const events = await extractEvents({ page, venue: t.name, config, createMessage, today })
         stats.events_found += events.length
@@ -216,7 +217,7 @@ export async function scrapeAndPost({
       stats.guides = (stats.guides ?? 0) + 1
       const span = log.span('scrape.guide', { url: g.url, source: g.source })
       try {
-        const page = await fetchPage(g.url, { fetchImpl, userAgent: sc.user_agent, stats })
+        const page = await fetchPage(g.url, { fetchImpl, userAgent: sc.user_agent, stats, respectRobots: sc.respect_robots !== false })
         if (!page) { span.end({ skipped: 'robots' }); continue }
         const events = await extractEvents({ page, venue: null, config, createMessage, today })
         stats.events_found += events.length
@@ -238,13 +239,15 @@ export async function scrapeAndPost({
   return stats
 }
 
-async function fetchPage(url, { fetchImpl, userAgent, stats }) {
+async function fetchPage(url, { fetchImpl, userAgent, stats, respectRobots = true }) {
   const u = new URL(url)
-  const robotsRes = await fetchImpl(`${u.origin}/robots.txt`, { headers: { 'user-agent': userAgent } }).catch(() => null)
-  const robots = robotsRes?.ok ? await robotsRes.text() : ''
-  if (!robotsAllows(robots, u.pathname + u.search, userAgent)) {
-    stats.robots_blocked++
-    return null
+  if (respectRobots) {
+    const robotsRes = await fetchImpl(`${u.origin}/robots.txt`, { headers: { 'user-agent': userAgent } }).catch(() => null)
+    const robots = robotsRes?.ok ? await robotsRes.text() : ''
+    if (!robotsAllows(robots, u.pathname + u.search, userAgent)) {
+      stats.robots_blocked++
+      return null
+    }
   }
   const res = await fetchImpl(url, { headers: { 'user-agent': userAgent, accept: 'text/html,application/xhtml+xml' }, redirect: 'follow' })
   if (!res.ok) throw new Error(`GET ${url} -> ${res.status}`)

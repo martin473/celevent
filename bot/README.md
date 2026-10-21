@@ -75,7 +75,8 @@ https://venue-site/event-page
 ```
 
 Posts carry the facts and a link card back to the venue; descriptions aren't
-copied. robots.txt is honored, requests send a `celevent-bot` User-Agent, pages
+copied. robots.txt is checked only when `scrape.respect_robots` is true (it's
+off in this config). Requests send a `celevent-bot` User-Agent, and pages
 are fetched at most every `scrape.interval_hours`, with a pause between sites.
 The same event is never shared twice: a show that was reposted from the
 venue's own post isn't posted again, and vice versa (matched on date + venue +
