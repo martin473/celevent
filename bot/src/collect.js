@@ -16,6 +16,13 @@ export async function collect({ db, bsky, config, log, now = new Date() }) {
   const stats = { sources: 0, source_errors: 0, seen: 0, new: 0, pending: 0, skipped: {} }
   const lagsSec = []
 
+  // Clean up any own posts reviewed before the bot skipped them.
+  await db.query(
+    `update reviews set accepted = false, reject_code = 'own_post'
+     where accepted and uri in (select uri from candidates where author_did = $1)`,
+    [bsky.did],
+  )
+
   const accounts = await log.trace('collect.resolve_accounts', {}, () =>
     resolveAccounts({ bsky, config, log }),
   )
@@ -26,6 +33,8 @@ export async function collect({ db, bsky, config, log, now = new Date() }) {
     for (const post of posts) {
       const c = fromPostView(post, source)
       if (!c.uri || !c.cid || !c.authorDid) continue
+      // Searches find the bot's own posts about scraped shows; never review or repost those.
+      if (c.authorDid === bsky.did) { stats.own_skipped = (stats.own_skipped ?? 0) + 1; continue }
       stats.seen++
       if (guideWatch.has(c.authorDid)) {
         if (await maybeQueueGuide(db, post, guideWatch.get(c.authorDid))) stats.guides_queued = (stats.guides_queued ?? 0) + 1

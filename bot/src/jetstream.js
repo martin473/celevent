@@ -74,6 +74,7 @@ export async function runJetstream({
     if (commit.collection !== 'app.bsky.feed.post') return
     window.posts++
 
+    if (bsky && evt.did === bsky.did) return // the bot's own posts
     const c = fromJetstreamCommit(evt)
     const verdict = prefilter(c, { config, regionRe, trustedDids, now: now() })
     if (verdict.status !== 'pending') return // don't store the firehose's rejects

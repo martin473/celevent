@@ -161,3 +161,15 @@ test('a failing source does not stop the others', { skip }, async () => {
   assert.equal(stats.collect.new, 1)
   assert.ok(log.lines.some((l) => l.span === 'collect.source' && l.error === 'upstream 502'))
 })
+
+test("the bot's own posts are never reviewed or reposted", { skip }, async () => {
+  const config = testConfig({ repost: { dry_run: false } })
+  const own = postView({ did: 'did:plc:bot', handle: 'pittsburghevents.bsky.social', text: '🎶 Pink Talking Fish\n📅 Fri, Oct 23\n📍 Thunderbird Music Hall pittsburgh show 8pm', createdAt: hoursAgo(1) })
+  const bsky = fakeBsky({ did: 'did:plc:bot', search: { 'pittsburgh show': [own] } })
+  const llm = fakeLlm(judge)
+  const { stats } = await runOnce({ db, bsky, config, log: memoryLogger(), createMessage: llm, now: NOW })
+  assert.equal(stats.collect.own_skipped, 1)
+  assert.equal(stats.collect.new, 0)
+  assert.equal(llm.requests.length, 0)
+  assert.equal(bsky.calls.reposts.length, 0)
+})
