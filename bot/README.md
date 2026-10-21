@@ -181,7 +181,48 @@ Jetstream collector, and an HTTP server with:
 | `/healthz` | 200 if the last run succeeded within 3 intervals, else 503 |
 | `/metrics` | Prometheus metrics (ingest lag, run failures, reposts, posts) |
 
-### Deploy to Fly.io
+### Hosting it for free
+
+Two free setups, both using **Neon's free Postgres** (neon.com: 1 GB storage,
+100 compute-hours/month; the database sleeps after 5 idle minutes, and a run
+every 20 minutes fits comfortably):
+
+**Option 1: GitHub Actions schedule.** No server, no credit card. The repo's
+`.github/workflows/bot-cron.yml` runs a batch about every 20 minutes and
+discovery once a day.
+
+1. Create a Neon project and copy its connection string.
+2. On GitHub, open the repo → Settings → Secrets and variables → Actions:
+   - Secrets: `DATABASE_URL`, `OLLAMA_API_KEY`, `BSKY_IDENTIFIER`,
+     `BSKY_APP_PASSWORD`, and optionally `ALERT_WEBHOOK_URL`.
+   - Variables: `BOT_CRON_ENABLED` = `true`, `DRY_RUN` = `0`.
+3. Merge to `main`, because schedules only run from the default branch. Use
+   "Run workflow" on the Actions tab to trigger a run by hand.
+
+Free for public repos. You get reposts, scraping, discovery, and alerts.
+You don't get the custom feed, hosted OAuth, `/healthz`, or Jetstream, since
+those need an always-on server. GitHub can delay scheduled runs by a few
+minutes, and it pauses schedules after 60 days with no repo activity.
+
+**Option 2: a free VM.** Everything, including the feed and hosted OAuth.
+Google Cloud's Always Free tier includes one e2-micro VM running 24/7
+(us-west1, us-central1, or us-east1; 30 GB standard disk; 1 GB/month
+outbound). A card is required at signup.
+
+```bash
+# on the VM (Debian/Ubuntu), after installing Docker
+git clone https://github.com/martin473/celevent && cd celevent/bot
+cp .env.example .env && nano .env      # DATABASE_URL (Neon), keys, PUBLIC_URL=https://<ip-with-dashes>.sslip.io
+cd deploy/vm
+DOMAIN=<ip-with-dashes>.sslip.io docker compose up -d --build
+curl https://<ip-with-dashes>.sslip.io/healthz
+```
+
+Open ports 80 and 443 in the VM's firewall. Caddy gets a free HTTPS
+certificate for the sslip.io name (a free DNS name that maps to the VM's IP),
+and autoheal restarts the bot if `/healthz` keeps failing.
+
+### Paid alternative: Fly.io
 
 ```bash
 brew install flyctl && fly auth signup        # or fly auth login
@@ -201,7 +242,7 @@ fly deploy
 curl https://<app>.fly.dev/healthz
 ```
 
-Fly's health check hits `/healthz` and restarts the machine when it keeps
+Fly no longer has a free tier for new accounts. Fly's health check hits `/healthz` and restarts the machine when it keeps
 failing. With `FLY_API_TOKEN` (from `fly tokens create deploy`) saved as a
 GitHub repo secret, `.github/workflows/bot.yml` deploys `main` after the test
 suite passes against Postgres; without it, CI just runs the tests.

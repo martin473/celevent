@@ -1,0 +1,59 @@
+# Free hosting option 1: run the bot on GitHub Actions' schedule, with the
+# database on Neon's free Postgres. Free for public repos.
+#
+# Setup (repo Settings -> Secrets and variables -> Actions):
+#   secrets:   DATABASE_URL, OLLAMA_API_KEY, BSKY_IDENTIFIER, BSKY_APP_PASSWORD,
+#              ALERT_WEBHOOK_URL (optional)
+#   variables: BOT_CRON_ENABLED = true   (the on/off switch)
+#              DRY_RUN = 0               (optional; defaults to 1, record-only)
+#
+# Scheduled workflows only run from the default branch (main), GitHub can
+# delay them by several minutes at busy times, and it pauses schedules after
+# 60 days without repo activity (re-enable from the Actions tab).
+name: celevent-bot schedule
+
+on:
+  schedule:
+    - cron: "7,27,47 * * * *"   # batch run about every 20 minutes
+    - cron: "13 9 * * *"        # discovery once a day
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "run, discover, scrape, or status"
+        default: run
+
+concurrency:
+  group: celevent-bot
+  cancel-in-progress: false
+
+jobs:
+  bot:
+    if: vars.BOT_CRON_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: bot
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+      BSKY_IDENTIFIER: ${{ secrets.BSKY_IDENTIFIER }}
+      BSKY_APP_PASSWORD: ${{ secrets.BSKY_APP_PASSWORD }}
+      ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+      DRY_RUN: ${{ vars.DRY_RUN || '1' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: bot/package.json
+      - run: npm install --omit=dev --no-audit --no-fund
+      - name: Pick command
+        id: cmd
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then echo "c=${{ inputs.command }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "13 9 * * *" ]; then echo "c=discover" >> "$GITHUB_OUTPUT"
+          else echo "c=run" >> "$GITHUB_OUTPUT"; fi
+      - run: node src/cli.js migrate
+      - run: node src/cli.js ${{ steps.cmd.outputs.c }}

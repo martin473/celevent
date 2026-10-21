@@ -58,8 +58,18 @@ async function main([cmd, ...args]) {
       case 'run': {
         const bsky = await connectBluesky({ db, config, log })
         const createMessage = llmClient(config.env)
-        const { ok } = await runOnce({ db, bsky, config, log, createMessage })
-        process.exitCode = ok ? 0 : 1
+        // One run per invocation (cron, GitHub Actions); alert on problems like the loop does.
+        const { alertOnRun } = await import('./health.js')
+        let result = { ok: false, stats: {} }
+        try {
+          result = await runOnce({ db, bsky, config, log, createMessage })
+        } catch (err) {
+          result.stats.error = errMsg(err)
+          throw err
+        } finally {
+          await alertOnRun({ db, config, log, stats: result.stats, ok: result.ok }).catch(() => {})
+        }
+        process.exitCode = result.ok ? 0 : 1
         break
       }
 
