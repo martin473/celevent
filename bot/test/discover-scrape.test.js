@@ -182,7 +182,7 @@ test('discovery follows verified active accounts and marks the rest for scraping
   assert.equal(rows['Roxian Theatre'].verified, false)
   assert.equal(rows['Roxian Theatre'].events_url, 'https://roxian.example')
   assert.equal(rows['Roxian Theatre'].scrape, true)
-  // aggregator verified by domain handle; aggregators are never scraped
+  // aggregator verified by domain handle; no events page claimed, so nothing to scrape
   assert.equal(rows['Pittsburgh City Paper'].did, 'did:plc:citypaper')
   assert.equal(rows['Pittsburgh City Paper'].scrape, false)
   assert.deepEqual(bsky.follows.sort(), ['did:plc:benedum', 'did:plc:citypaper'])
@@ -423,4 +423,20 @@ test('ticketmaster events: add-ons, cancellations, and duplicate tiers dropped; 
   assert.equal(stats.venues, 0) // only=ticketmaster skips venue sites
   assert.equal(posts.length, 1) // Speedy (Oct 24) is within 7 days; Periphery (Oct 29) isn't yet
   assert.match(posts[0].text, /📍 Mr\. Smalls Theatre/)
+})
+
+test("an aggregator's events calendar is scraped as a guide, and `guides` scrapes only guides", { skip }, async () => {
+  await db.query(`insert into directory (name, kind, events_url, scrape) values ('Pittsburgh City Paper', 'aggregator', 'https://paper.example/events', true)`)
+  await db.query(`insert into directory (name, kind, events_url, scrape) values ('Mr. Smalls', 'venue', 'https://mrsmalls.example/events', true)`)
+  const fetched = []
+  const fetchImpl = async (url) => { fetched.push(url); return { ok: true, status: 200, text: async () => '<p>Oct 24 Speedy Ortiz at Mr. Smalls</p>' } }
+  const createMessage = async (body) => ({ content: [{ type: 'tool_use', name: 'record_events', input: { events: [
+    { title: 'Speedy Ortiz', headliner: 'Speedy Ortiz', date: '2026-10-24', venue: 'Mr. Smalls', is_music: true, is_local: true },
+  ] } }] })
+  const config = testConfig({ repost: { dry_run: true }, scrape: { guide_pages: [] } })
+  const stats = await scrapeAndPost({ db, bsky: {}, config, log: memoryLogger(), createMessage, fetchImpl, now: NOW, sleep: async () => {}, only: 'guides' })
+  assert.deepEqual(fetched, ['https://paper.example/events']) // venue site not touched, robots.txt not fetched
+  assert.ok(stats.guides >= 1)
+  const { rows } = await db.query(`select source from guide_pages where url = 'https://paper.example/events'`)
+  assert.equal(rows[0].source, 'directory:Pittsburgh City Paper')
 })

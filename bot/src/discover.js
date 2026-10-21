@@ -129,7 +129,8 @@ export async function discoverOne({ db, bsky, ollama, config, log, target, now =
     const page = await checkUrl(result.events_url, { fetchImpl, userAgent: config.scrape?.user_agent })
     const site = await checkUrl(result.website, { fetchImpl, userAgent: config.scrape?.user_agent })
     // Fall back to the homepage: many venue homepages list upcoming shows.
-    result.events_url = page.ok ? page.url : site.ok ? site.url : null
+    // (Venues only: an aggregator's homepage is articles, not a listings page.)
+    result.events_url = page.ok ? page.url : site.ok && target.kind === 'venue' ? site.url : null
     result.website = site.ok ? site.url : (result.website || null)
 
     const handle = (result.bluesky_handle ?? '').trim().replace(/^@/, '').toLowerCase() || null
@@ -147,7 +148,11 @@ export async function discoverOne({ db, bsky, ollama, config, log, target, now =
     }
     const active = lastPostAt && (now - lastPostAt) / 864e5 <= dc.active_within_days
     const usable = check.verified && confidence >= dc.min_confidence
-    const scrape = target.kind === 'venue' && Boolean(result.events_url) && !(usable && active)
+    // Venues: scrape the site when there's no usable, active account. Aggregators
+    // (City Paper, ...): always scrape their events calendar if they have one,
+    // since their Bluesky posts link articles rather than individual shows.
+    const scrape = Boolean(result.events_url) &&
+      (target.kind === 'aggregator' || !(usable && active))
 
     const row = {
       name: target.name,

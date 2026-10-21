@@ -177,16 +177,21 @@ export async function scrapeAndPost({
   const due = force || !lastRun || (now - new Date(lastRun)) / 36e5 >= sc.interval_hours
   if (due) {
     const { rows: targets } = await db.query(
-      `select name, events_url from directory where scrape and events_url is not null order by name`,
+      `select name, kind, events_url from directory where scrape and events_url is not null order by name`,
     )
     // Several directory names can share one site (renamed venues, rooms in one
     // building). Scrape each URL once, under the first name, so its shows
     // aren't posted twice under two venue names.
     const seenUrls = new Set()
-    const configured = new Set(config.region.venues ?? []) // venues removed from config stop being scraped
-    const pages = [...targets.filter((t) => configured.has(t.name)), ...(sc.extra_pages ?? []).map((p) => ({ name: p.venue, events_url: p.url }))]
+    // Names removed from config stop being scraped.
+    const configured = new Set([...(config.region.venues ?? []), ...(config.discover?.aggregators ?? [])])
+    // Aggregator calendars list many venues, so they're scraped like guides.
+    for (const t of targets.filter((t) => t.kind === 'aggregator' && configured.has(t.name))) {
+      await db.query(`insert into guide_pages (url, source) values ($1, $2) on conflict do nothing`, [t.events_url, `directory:${t.name}`])
+    }
+    const pages = [...targets.filter((t) => t.kind !== 'aggregator' && configured.has(t.name)), ...(sc.extra_pages ?? []).map((p) => ({ name: p.venue, events_url: p.url }))]
       .filter((t) => { const k = t.events_url.replace(/\/+$/, '').toLowerCase(); if (seenUrls.has(k)) return false; seenUrls.add(k); return true })
-    for (const t of only === 'ticketmaster' ? [] : pages) {
+    for (const t of only && only !== 'venues' ? [] : pages) {
       stats.venues++
       const span = log.span('scrape.venue', { venue: t.name, url: t.events_url })
       try {
@@ -210,11 +215,11 @@ export async function scrapeAndPost({
     }
     const { rows: guides } = await db.query(
       `select url, source from guide_pages
-       where (source = 'config' or first_seen > now() - make_interval(days => $1))
+       where (source = 'config' or source like 'directory:%' or first_seen > now() - make_interval(days => $1))
        order by first_seen desc limit $2`,
       [sc.guide_max_age_days ?? 21, sc.max_guides_per_run ?? 10],
     )
-    for (const g of only === 'ticketmaster' ? [] : guides) {
+    for (const g of only && only !== 'guides' ? [] : guides) {
       stats.guides = (stats.guides ?? 0) + 1
       const span = log.span('scrape.guide', { url: g.url, source: g.source })
       try {
@@ -234,7 +239,7 @@ export async function scrapeAndPost({
     }
 
     // Ticketmaster: structured listings for the big rooms whose sites need JavaScript.
-    if (config.env.ticketmasterApiKey) {
+    if (config.env.ticketmasterApiKey && (!only || only === 'ticketmaster')) {
       const span = log.span('scrape.ticketmaster')
       try {
         const events = await fetchTicketmasterEvents({ apiKey: config.env.ticketmasterApiKey, config, today, fetchImpl, sleep })

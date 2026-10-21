@@ -18,7 +18,7 @@ const USAGE = `celevent-bot <command>
   stream             live Jetstream collector (pair with loop or cron'd run)
   discover [name]    find venue/aggregator Bluesky accounts + events pages (Ollama web search)
                      --force re-checks everything; a name limits it to matching targets
-  scrape             scrape venue events pages now and post upcoming shows
+  scrape [source]    scrape now and post upcoming shows; source = ticketmaster, guides, or venues
   directory          what discovery found for each venue and aggregator
   status             recent runs and review decisions
   serve              production mode: HTTP server (feed, OAuth, /healthz, /metrics)
@@ -163,8 +163,8 @@ async function main([cmd, ...args]) {
       case 'scrape': {
         const { scrapeAndPost } = await import('./scrape.js')
         const bsky = await connectBluesky({ db, config, log })
-        // `npm run scrape -- ticketmaster` refreshes only Ticketmaster (no venue sites or guides).
-        const only = args.includes('ticketmaster') ? 'ticketmaster' : null
+        // `npm run scrape -- ticketmaster|guides|venues` refreshes just that source.
+        const only = ['ticketmaster', 'guides', 'venues'].find((a) => args.includes(a)) ?? null
         if (only && !config.env.ticketmasterApiKey) throw new Error('set TICKETMASTER_API_KEY in .env')
         const stats = await scrapeAndPost({ db, bsky, config, log, createMessage: llmClient(config.env), force: true, only })
         log.info('scrape summary', stats)
