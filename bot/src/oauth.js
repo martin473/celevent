@@ -17,12 +17,12 @@ import { kvGet, kvSet, kvDel } from './store.js'
  * stored in Postgres via the kv table, so the cron job can restore the session
  * and the library refreshes tokens transparently.
  *
- * This uses a *loopback* client (client_id http://localhost?...). No hosted
- * metadata needed, which is right for a single-operator bot, but auth servers
- * give loopback clients shorter-lived refresh tokens. For a long-running
- * production deployment, host client-metadata.json + jwks.json and switch to a
- * confidential client (token_endpoint_auth_method: private_key_jwt); the
- * stores below don't change.
+ * Two client types:
+ *   - confidential (PUBLIC_URL + OAUTH_PRIVATE_KEY set): metadata and JWKS are
+ *     served by the bot's HTTPS server, sign-in happens at /oauth/login on that
+ *     server, and the session is long-lived. Use this in production.
+ *   - loopback (neither set): `npm run login` on your own machine; no hosting
+ *     needed, but auth servers give loopback clients shorter sessions.
  */
 
 const STATE_PREFIX = 'oauth:state:'
@@ -56,21 +56,58 @@ export function pgLock(db) {
 }
 
 export async function createOAuthClient({ db, config }) {
-  const { NodeOAuthClient, buildAtprotoLoopbackClientMetadata } =
+  const { NodeOAuthClient, buildAtprotoLoopbackClientMetadata, JoseKey } =
     await import('@atproto/oauth-client-node')
-  const { oauthScope, oauthPort } = config.env
-  const redirectUri = `http://127.0.0.1:${oauthPort}/callback`
+  const { oauthScope, oauthPort, publicUrl, oauthPrivateKey } = config.env
+  const shared = {
+    ...pgStores(db),
+    // Advisory locks need one connection held across lock/unlock; with a pool
+    // that isn't guaranteed, so this is only used when db exposes connect().
+    requestLock: db.connect ? pooledLock(db) : undefined,
+  }
 
+  // Production: a confidential client. Its metadata and public keys are served
+  // by this bot's own HTTPS server (see server.js), and the token endpoint
+  // authenticates the client with a private_key_jwt signed by OAUTH_PRIVATE_KEY.
+  // Confidential clients get long-lived sessions, which a 24/7 bot needs.
+  if (publicUrl && oauthPrivateKey) {
+    const base = publicUrl.replace(/\/+$/, '')
+    return new NodeOAuthClient({
+      clientMetadata: {
+        client_id: `${base}/oauth/client-metadata.json`,
+        client_name: 'Pittsburgh Shows bot',
+        client_uri: base,
+        redirect_uris: [`${base}/oauth/callback`],
+        grant_types: ['authorization_code', 'refresh_token'],
+        response_types: ['code'],
+        scope: oauthScope,
+        application_type: 'web',
+        token_endpoint_auth_method: 'private_key_jwt',
+        token_endpoint_auth_signing_alg: 'ES256',
+        dpop_bound_access_tokens: true,
+        jwks_uri: `${base}/oauth/jwks.json`,
+      },
+      keyset: [await JoseKey.fromImportable(oauthPrivateKey, 'celevent-1')],
+      ...shared,
+    })
+  }
+
+  // Local development: a loopback client, nothing hosted, shorter sessions.
+  const redirectUri = `http://127.0.0.1:${oauthPort}/callback`
   return new NodeOAuthClient({
     clientMetadata: buildAtprotoLoopbackClientMetadata({
       scope: oauthScope,
       redirect_uris: [redirectUri],
     }),
-    ...pgStores(db),
-    // Advisory locks need one connection held across lock/unlock; with a pool
-    // that isn't guaranteed, so this is only used when db exposes connect().
-    requestLock: db.connect ? pooledLock(db) : undefined,
+    ...shared,
   })
+}
+
+/** Print a new ES256 private JWK for OAUTH_PRIVATE_KEY. */
+export async function generateClientKey() {
+  const { JoseKey } = await import('@atproto/oauth-client-node')
+  const key = await JoseKey.generate(['ES256'], 'celevent-1')
+  return JSON.stringify(key.privateJwk)
 }
 
 function pooledLock(pool) {

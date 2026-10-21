@@ -20,6 +20,10 @@
     "discover": "node --env-file-if-exists=.env src/cli.js discover",
     "scrape": "node --env-file-if-exists=.env src/cli.js scrape",
     "directory": "node --env-file-if-exists=.env src/cli.js directory",
+    "serve": "node --env-file-if-exists=.env src/cli.js serve",
+    "start": "node src/cli.js serve",
+    "publish-feed": "node --env-file-if-exists=.env src/cli.js publish-feed",
+    "oauth-keygen": "node src/cli.js oauth-keygen",
     "test": "node --env-file-if-exists=.env --test test/*.test.js"
   },
   "dependencies": {

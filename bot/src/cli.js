@@ -21,6 +21,10 @@ const USAGE = `celevent-bot <command>
   scrape             scrape venue events pages now and post upcoming shows
   directory          what discovery found for each venue and aggregator
   status             recent runs and review decisions
+  serve              production mode: HTTP server (feed, OAuth, /healthz, /metrics)
+                     + the loop + optional Jetstream, all in one process
+  publish-feed       register the "Pittsburgh shows this week" feed on the bot account
+  oauth-keygen       print a new private key for OAUTH_PRIVATE_KEY
 
 env: DATABASE_URL, DRY_RUN, an LLM (OLLAMA_API_KEY or ANTHROPIC_API_KEY), and either
      BSKY_IDENTIFIER + BSKY_APP_PASSWORD, or an OAuth login (BSKY_AUTH=oauth)`
@@ -61,27 +65,66 @@ async function main([cmd, ...args]) {
 
       case 'loop': {
         const bsky = await connectBluesky({ db, config, log })
-        const createMessage = llmClient(config.env)
-        const everyMs = config.loop.interval_minutes * 60e3
-        const { discoverAll } = await import('./discover.js')
-        while (!shutdown.signal.aborted) {
-          try {
-            await runOnce({ db, bsky, config, log, createMessage, now: new Date() })
-          } catch (err) {
-            log.error('run failed', { error: errMsg(err) })
-          }
-          // Discovery is slow and changes rarely: at most once a day, only targets
-          // older than discover.refresh_days.
-          if (config.env.ollamaApiKey) {
-            const last = await kvGet(db, 'discover:last_run')
-            if (!last || Date.now() - new Date(last) > 864e5) {
-              await discoverAll({ db, bsky, ollama: makeOllama(config), config, log })
-                .catch((err) => log.error('discover failed', { error: errMsg(err) }))
-              await kvSet(db, 'discover:last_run', new Date().toISOString())
-            }
-          }
-          await sleep(everyMs, shutdown.signal)
+        await runLoop({ db, bsky, config, log, signal: shutdown.signal })
+        break
+      }
+
+      case 'serve': {
+        const { startServer } = await import('./server.js')
+        const { createOAuthClient } = await import('./oauth.js')
+        let oauthClient
+        const getOAuthClient = async () => {
+          if (!config.env.publicUrl || !config.env.oauthPrivateKey) return null
+          return (oauthClient ??= await createOAuthClient({ db, config }))
         }
+        // The server comes up first, so /oauth/login works even before the bot
+        // has a session, and /healthz reports while Bluesky is unreachable.
+        const server = await startServer({ db, config, log, getOAuthClient })
+        let bsky = null
+        while (!bsky && !shutdown.signal.aborted) {
+          bsky = await connectBluesky({ db, config, log }).catch(async (err) => {
+            log.error('bluesky connect failed, retrying in 60s', { error: errMsg(err) })
+            const { sendAlert } = await import('./health.js')
+            if (config.env.alertWebhookUrl) await sendAlert(config.env.alertWebhookUrl, `⚠️ celevent-bot can't sign in to Bluesky: ${errMsg(err)}`, { log })
+            await sleep(60e3, shutdown.signal)
+            return null
+          })
+        }
+        const tasks = []
+        if (bsky) tasks.push(runLoop({ db, bsky, config, log, signal: shutdown.signal }))
+        if (bsky && (config.env.jetstream ?? config.serve?.jetstream)) {
+          const { runJetstream } = await import('./jetstream.js')
+          tasks.push(runJetstream({ db, bsky, config, log: log.child({ component: 'jetstream' }), signal: shutdown.signal }))
+        }
+        await Promise.all(tasks)
+        await new Promise((r) => server.close(r))
+        break
+      }
+
+      case 'publish-feed': {
+        const { feedConfig } = await import('./feed.js')
+        const fc = feedConfig(config)
+        if (!fc) throw new Error('set PUBLIC_URL to the HTTPS address the feed server runs at')
+        const bsky = await connectBluesky({ db, config, log })
+        const uri = await bsky.putRecord({
+          collection: 'app.bsky.feed.generator',
+          rkey: fc.rkey,
+          record: {
+            $type: 'app.bsky.feed.generator',
+            did: fc.serviceDid,
+            displayName: fc.displayName,
+            description: fc.description,
+            createdAt: new Date().toISOString(),
+          },
+        })
+        log.info('feed published', { uri, service: fc.serviceDid })
+        console.log(`\nFeed published: https://bsky.app/profile/${bsky.did}/feed/${fc.rkey}`)
+        break
+      }
+
+      case 'oauth-keygen': {
+        const { generateClientKey } = await import('./oauth.js')
+        console.log(`OAUTH_PRIVATE_KEY='${await generateClientKey()}'`)
         break
       }
 
@@ -168,6 +211,37 @@ async function main([cmd, ...args]) {
     }
   } finally {
     await db.end()
+  }
+}
+
+/** Batch run every loop.interval_minutes, alerts after each run, daily discovery. */
+async function runLoop({ db, bsky, config, log, signal }) {
+  const { discoverAll } = await import('./discover.js')
+  const { alertOnRun } = await import('./health.js')
+  const createMessage = llmClient(config.env)
+  const everyMs = config.loop.interval_minutes * 60e3
+  while (!signal.aborted) {
+    let result = { ok: false, stats: {} }
+    try {
+      result = await runOnce({ db, bsky, config, log, createMessage, now: new Date() })
+    } catch (err) {
+      log.error('run failed', { error: errMsg(err) })
+      result.stats.error = errMsg(err)
+    }
+    await alertOnRun({ db, config, log, stats: result.stats, ok: result.ok })
+      .catch((err) => log.warn('alerting failed', { error: errMsg(err) }))
+
+    // Discovery is slow and changes rarely: at most once a day, only targets
+    // older than discover.refresh_days.
+    if (config.env.ollamaApiKey) {
+      const last = await kvGet(db, 'discover:last_run')
+      if (!last || Date.now() - new Date(last) > 864e5) {
+        await discoverAll({ db, bsky, ollama: makeOllama(config), config, log })
+          .catch((err) => log.error('discover failed', { error: errMsg(err) }))
+        await kvSet(db, 'discover:last_run', new Date().toISOString())
+      }
+    }
+    await sleep(everyMs, signal)
   }
 }
 

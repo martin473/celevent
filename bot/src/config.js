@@ -38,6 +38,12 @@ export function loadConfig({ env = process.env, file } = {}) {
     oauthDid: env.BSKY_OAUTH_DID,
     oauthScope: env.BSKY_OAUTH_SCOPE ?? 'atproto transition:generic',
     oauthPort: Number(env.BSKY_OAUTH_PORT ?? 8789),
+    oauthPrivateKey: env.OAUTH_PRIVATE_KEY,
+    publicUrl: env.PUBLIC_URL,
+    adminToken: env.ADMIN_TOKEN,
+    alertWebhookUrl: env.ALERT_WEBHOOK_URL,
+    port: Number(env.PORT ?? 8080),
+    jetstream: env.JETSTREAM != null ? truthy(env.JETSTREAM) : undefined,
   }
 
   validate(cfg)

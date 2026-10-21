@@ -166,6 +166,79 @@ host `client-metadata.json` and `jwks.json` and switch to a confidential client
 defaults to `atproto transition:generic`; narrowing it to granular repo/rpc
 scopes is a good next step.
 
+## Running it for real: deploy, custom feed, OAuth, alerts
+
+`npm run serve` is production mode: one process that runs the batch loop
+(every 20 min, discovery daily, scraping every 12 h), optionally the
+Jetstream collector, and an HTTP server with:
+
+| Path | What |
+|---|---|
+| `/.well-known/did.json` | `did:web` document for the feed generator |
+| `/xrpc/app.bsky.feed.getFeedSkeleton` | the "Pittsburgh Shows This Week" custom feed |
+| `/oauth/client-metadata.json`, `/oauth/jwks.json` | confidential OAuth client |
+| `/oauth/login?token=…`, `/oauth/callback` | one-time OAuth sign-in for the bot account |
+| `/healthz` | 200 if the last run succeeded within 3 intervals, else 503 |
+| `/metrics` | Prometheus metrics (ingest lag, run failures, reposts, posts) |
+
+### Deploy to Fly.io
+
+```bash
+brew install flyctl && fly auth signup        # or fly auth login
+cd bot
+fly launch --no-deploy --copy-config          # pick an app name; edit `app` in fly.toml to match
+fly postgres create                           # or use any Postgres (Neon, Supabase) and its URL
+fly postgres attach <pg-app-name>             # sets DATABASE_URL
+fly secrets set \
+  PUBLIC_URL=https://<app>.fly.dev \
+  OLLAMA_API_KEY=... \
+  BSKY_IDENTIFIER=pittsburghevents.bsky.social \
+  BSKY_APP_PASSWORD=... \
+  ADMIN_TOKEN=$(openssl rand -hex 24) \
+  OAUTH_PRIVATE_KEY="$(npm run -s oauth-keygen | sed "s/^OAUTH_PRIVATE_KEY='//; s/'$//")" \
+  ALERT_WEBHOOK_URL=https://ntfy.sh/<pick-a-secret-topic>
+fly deploy
+curl https://<app>.fly.dev/healthz
+```
+
+Fly's health check hits `/healthz` and restarts the machine when it keeps
+failing. With `FLY_API_TOKEN` (from `fly tokens create deploy`) saved as a
+GitHub repo secret, `.github/workflows/bot.yml` deploys `main` after the test
+suite passes against Postgres; without it, CI just runs the tests.
+
+### Switch the bot to OAuth (DPoP)
+
+1. Visit `https://<app>.fly.dev/oauth/login?token=<ADMIN_TOKEN>` in a browser
+   signed in to the bot's Bluesky account and approve.
+2. `fly secrets set BSKY_AUTH=oauth && fly secrets unset BSKY_APP_PASSWORD`
+
+The bot is a confidential client: Bluesky fetches its metadata and public key
+from `/oauth/*`, the token request is authenticated with a `private_key_jwt`,
+and every API call carries a DPoP proof signed by a per-session key. Starting
+sign-in requires `ADMIN_TOKEN`, and the callback rejects (and revokes) any
+account other than the bot's.
+
+### Publish the custom feed
+
+```bash
+fly ssh console -C "node src/cli.js publish-feed"
+```
+
+This writes an `app.bsky.feed.generator` record to the bot's repo pointing at
+`did:web:<app>.fly.dev`. Search "Pittsburgh Shows This Week" in Bluesky's feeds
+or open the link it prints, and pin it. The feed lists one post per show in
+the next 7 days, soonest first: accepted posts from venues/bands/press, plus
+the bot's own posts for scraped shows.
+
+### Alerts
+
+Set `ALERT_WEBHOOK_URL` to a Discord or Slack webhook, or to
+`https://ntfy.sh/<topic>` and install the ntfy app for phone push. After each
+run the bot alerts on: a failed run, LLM errors, half or more sources failing,
+ingest lag p50 over 2 h, or a failed scrape. Each alert repeats at most hourly,
+and a "healthy again" message follows recovery. Thresholds are in `alerts` in
+`config.json`.
+
 ## Operating it
 
 Logs are one JSON object per line, with a `trace_id` per run and `span` lines
@@ -212,7 +285,8 @@ bot/
   config.json         sources, region, thresholds
   sql/001_init.sql    schema
   src/
-    cli.js            migrate | login | run | loop | stream | status
+    cli.js            migrate | login | run | loop | serve | stream | discover |
+                      scrape | directory | publish-feed | oauth-keygen | status
     pipeline.js       one run: collect -> review -> repost, writes run stats
     collect.js        followed accounts + searches, cursors, pagination
     jetstream.js      live firehose collector with checkpointed cursor
@@ -223,6 +297,9 @@ bot/
     discover.js       agent that finds venue accounts + events pages; verification; follows
     scrape.js         robots.txt, JSON-LD + text extraction, posts for scraped shows
     ollama.js         Ollama chat with tools, web search, web fetch
+    server.js         HTTP: feed generator, OAuth client hosting, /healthz, /metrics
+    feed.js           did:web document and getFeedSkeleton query
+    health.js         health check, Prometheus metrics, webhook alerts
     bsky.js           thin Bluesky client + app-password auth
     oauth.js          OAuth/DPoP login, Postgres stores, advisory lock
     store.js          all SQL

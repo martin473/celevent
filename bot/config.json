@@ -97,6 +97,23 @@
     "extra_pages": []
   },
 
+  "feed": {
+    "rkey": "pgh-shows",
+    "days": 7,
+    "display_name": "Pittsburgh Shows This Week",
+    "description": "Upcoming live music in Pittsburgh over the next 7 days, from venues, bands, and local press. Curated by an LLM-vetted bot."
+  },
+
+  "alerts": {
+    "cooldown_minutes": 60,
+    "ingest_lag_p50_sec": 7200,
+    "source_error_ratio": 0.5
+  },
+
+  "serve": {
+    "jetstream": false
+  },
+
   "loop": {
     "interval_minutes": 20
   }

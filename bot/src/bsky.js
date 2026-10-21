@@ -48,6 +48,10 @@ export function wrapAgent(agent, did) {
         postsCount: data.postsCount ?? 0, following: Boolean(data.viewer?.following),
       }
     },
+    async putRecord({ collection, rkey, record }) {
+      const { data } = await agent.com.atproto.repo.putRecord({ repo: did, collection, rkey, record })
+      return data.uri
+    },
     async follow(did) {
       const res = await agent.follow(did)
       return res.uri
@@ -73,12 +77,15 @@ export function wrapAgent(agent, did) {
 /** Build an authenticated client for the bot account from env config. */
 export async function connectBluesky({ db, config, log }) {
   const env = config.env
+  let agent, did
   if (env.authMode === 'oauth') {
     const { restoreOAuthAgent } = await import('./oauth.js')
-    const { agent, did } = await restoreOAuthAgent({ db, config, log })
-    return wrapAgent(agent, did)
+    ;({ agent, did } = await restoreOAuthAgent({ db, config, log }))
+  } else {
+    ;({ agent, did } = await appPasswordAgent({ db, env, log }))
   }
-  const { agent, did } = await appPasswordAgent({ db, env, log })
+  // The feed generator and OAuth callback need to know the bot's DID.
+  await kvSet(db, 'bot:did', did)
   return wrapAgent(agent, did)
 }
 
