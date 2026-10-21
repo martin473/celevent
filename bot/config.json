@@ -1,0 +1,73 @@
+{
+  "region": {
+    "name": "Pittsburgh, PA",
+    "timezone": "America/New_York",
+    "location_terms": [
+      "pittsburgh", "pgh", "pittsburg", "412",
+      "lawrenceville", "bloomfield", "east liberty", "oakland", "south side",
+      "strip district", "millvale", "polish hill", "garfield", "regent square",
+      "squirrel hill", "north side", "allentown", "braddock", "homestead",
+      "wilkinsburg", "mt lebanon", "dormont", "sharpsburg"
+    ],
+    "venues": [
+      "Mr. Smalls", "Thunderbird Cafe", "Thunderbird Music Hall", "Spirit",
+      "Club Cafe", "Brillobox", "Bottlerocket Social Hall", "Stage AE",
+      "Roxian Theatre", "Cattivo", "Starlite Lounge", "Belvedere's",
+      "Mr. Roboto Project", "Black Forge Coffee", "Government Center",
+      "Byham Theater", "Benedum Center", "Carnegie Music Hall",
+      "Petersen Events Center", "PPG Paints Arena",
+      "The Andy Warhol Museum", "Cafe Verona", "Trace Brewing", "Hambone's"
+    ]
+  },
+
+  "sources": {
+    "follow_bot_follows": true,
+    "accounts": [],
+    "searches": [
+      "pittsburgh show",
+      "pgh show",
+      "pittsburgh tonight",
+      "live music pittsburgh",
+      "pittsburgh concert",
+      "#pghmusic",
+      "#pittsburghmusic",
+      "#calevent"
+    ],
+    "search_venue_names": true,
+    "lookback_hours": 72,
+    "max_pages_per_source": 3,
+    "include_replies": false
+  },
+
+  "prefilter": {
+    "min_score": 2,
+    "trusted_min_score": 1,
+    "block_terms": ["giveaway", "for sale", "obituary", "lost dog", "#nsfw"],
+    "blocked_labels": ["!hide", "!warn", "porn", "sexual", "nudity", "graphic-media", "spam"]
+  },
+
+  "review": {
+    "model": "claude-haiku-5-5",
+    "event_kinds": "live music shows: concerts, gigs, DJ nights, and showcases with a specific date",
+    "batch_size": 20,
+    "min_confidence": 0.75,
+    "window_days": 21,
+    "max_attempts": 3
+  },
+
+  "repost": {
+    "max_per_run": 10,
+    "max_per_day": 40,
+    "dry_run": true
+  },
+
+  "jetstream": {
+    "endpoint": "wss://jetstream2.us-east.bsky.network/subscribe",
+    "checkpoint_seconds": 10,
+    "rewind_seconds": 5
+  },
+
+  "loop": {
+    "interval_minutes": 20
+  }
+}

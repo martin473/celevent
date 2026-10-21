@@ -112,3 +112,12 @@ firehose.on('commit', ({ ops }) => {
   }
 })
 ```
+
+## celevent-bot: a Pittsburgh shows repost bot
+
+`bot/` extends this into a server-side pipeline for posts that *don't* use the
+`#calevent` format: it follows venue/band/promoter accounts and searches,
+stores candidates in Postgres, has an LLM judge which posts announce real
+upcoming Pittsburgh shows, and reposts those from a bot account. It supports
+app-password and OAuth (DPoP) login and logs ingest lag per run.
+See [bot/README.md](bot/README.md).

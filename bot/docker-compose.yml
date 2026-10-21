@@ -1,0 +1,18 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: celevent
+      POSTGRES_PASSWORD: celevent
+      POSTGRES_DB: celevent
+    ports:
+      - "5432:5432"
+    volumes:
+      - celevent-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U celevent"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  celevent-pg:
