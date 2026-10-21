@@ -51,7 +51,7 @@
     "model": "claude-haiku-5-5",
     "ollama_model": "gpt-oss:20b",
     "event_kinds": "live music shows: concerts, gigs, DJ nights, and showcases with a specific date",
-    "batch_size": 20,
+    "batch_size": 100,
     "min_confidence": 0.75,
     "window_days": 21,
     "max_attempts": 3
