@@ -243,6 +243,13 @@ export async function scrapeAndPost({
       const span = log.span('scrape.ticketmaster')
       try {
         const events = await fetchTicketmasterEvents({ apiKey: config.env.ticketmasterApiKey, config, today, fetchImpl, sleep })
+        // Ticketmaster is the source of truth for its own listings: drop its rows
+        // that haven't been posted yet and re-insert, so cancelled shows vanish
+        // and keys always use the current venue matching.
+        await db.query(
+          `delete from scraped_events s where s.source_url = 'https://www.ticketmaster.com'
+             and not exists (select 1 from own_posts o where o.event_key = s.event_key)`,
+        )
         stats.ticketmaster_events = events.length
         stats.events_found += events.length
         const added = await saveEvents(db, events, { venue: null, sourceUrl: 'https://www.ticketmaster.com', config, today })

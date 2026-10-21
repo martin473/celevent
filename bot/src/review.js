@@ -286,13 +286,34 @@ export function eventKeyFor({ date, venue, headliner, title }, knownVenues = [])
   return [date, canonicalVenue(venue, knownVenues), slug(headliner || title)].join('|')
 }
 
-/** "Mr. Smalls Theatre" and "mr smalls" both map to the configured "Mr. Smalls". */
+/**
+ * Map venue spellings from different sources to one configured venue:
+ * "Mr. Smalls Theatre" / "mr smalls" -> "Mr. Smalls", and Ticketmaster's
+ * "Thunderbird Cafe & Music Hall" -> "Thunderbird Music Hall". Generic words
+ * (cafe, music, hall, theatre...) are ignored when comparing.
+ */
 export function canonicalVenue(venue, knownVenues = []) {
   const v = slug(venue)
   if (!v) return ''
-  const match = knownVenues.map(slug).filter((k) => k && (v.includes(k) || k.includes(v)))
+  const direct = knownVenues.map(slug).filter((k) => k && (v.includes(k) || k.includes(v)))
     .sort((a, b) => b.length - a.length)[0]
-  return match ?? v
+  if (direct) return direct
+  const cv = venueCore(venue)
+  if (cv.length >= 4) {
+    const byCore = knownVenues.filter((k) => {
+      const ck = venueCore(k)
+      return ck.length >= 4 && (cv.includes(ck) || ck.includes(cv))
+    }).sort((a, b) => venueCore(b).length - venueCore(a).length)[0]
+    if (byCore) return slug(byCore)
+  }
+  return v
+}
+
+const GENERIC_VENUE_WORDS = new Set(['the', 'a', 'at', 'and', 'of', 'cafe', 'café', 'music', 'hall', 'theatre', 'theater',
+  'club', 'lounge', 'bar', 'center', 'centre', 'live', 'room', 'venue', 'social', 'house', 'stage', 'arena', 'pittsburgh', 'pgh'])
+
+function venueCore(name) {
+  return (name ?? '').toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w && !GENERIC_VENUE_WORDS.has(w)).join('')
 }
 
 const clamp01 = (n) => (Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0)

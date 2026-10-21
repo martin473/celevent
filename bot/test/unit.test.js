@@ -221,3 +221,14 @@ test('provider is chosen from env', async () => {
   assert.equal(cl.env.llmProvider, 'anthropic')
   assert.equal(cl.review.model, 'claude-haiku-5-5')
 })
+
+test('venue names from different sources map to one configured venue', async () => {
+  const { canonicalVenue } = await import('../src/review.js')
+  const venues = config.region.venues
+  assert.equal(canonicalVenue('Thunderbird Cafe & Music Hall', venues), 'thunderbirdmusichall')
+  assert.equal(canonicalVenue('Mr. Smalls Theatre', venues), 'mrsmalls')
+  assert.equal(canonicalVenue('The Roxian', venues), 'roxiantheatre')
+  assert.equal(canonicalVenue('Stage AE', venues), 'stageae') // generic words alone don't collapse it
+  assert.equal(canonicalVenue('Heinz Hall', venues), 'heinzhall') // unknown venue keeps its own name
+  assert.equal(canonicalVenue('Citizens Live at The Wylie', venues), 'citizensliveatthewylie')
+})
