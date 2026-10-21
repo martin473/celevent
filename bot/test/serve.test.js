@@ -172,3 +172,19 @@ test('alerts respect the cooldown and announce recovery', { skip }, async () => 
   assert.match(sent[0], /^⚠️ celevent-bot: LLM review failed in 2 batch/)
   assert.match(sent[2], /healthy again/)
 })
+
+test('server: dashboard renders runs, upcoming shows, and decisions', { skip }, async () => {
+  await seedEvents()
+  await db.query(`insert into runs (kind, started_at, finished_at, ok, stats) values ('batch', now() - interval '20 minutes', now() - interval '19 minutes', true, '{"ingest_lag_sec":{"n":5,"p50":300},"duration_ms":40000,"collect":{"new":4}}')`)
+  await db.query(`insert into runs (kind, started_at, finished_at, ok, stats) values ('batch', now(), now(), true, '{"ingest_lag_sec":{"n":5,"p50":120},"duration_ms":30000,"collect":{"new":2},"review":{"reviewed":2,"accepted":1}}')`)
+  await withServer(cfg(), {}, async (base) => {
+    const root = await fetch(`${base}/`, { redirect: 'manual' })
+    assert.equal(root.headers.get('location'), '/dashboard')
+    const html = await (await fetch(`${base}/dashboard`)).text()
+    assert.match(html, /<title>celevent-bot<\/title>/)
+    assert.match(html, /healthy/)
+    assert.match(html, /<svg/) // lag sparkline with 2 runs
+    assert.match(html, /bsky\.app\/profile\/a\/post\/soon/)
+    assert.doesNotMatch(html, /<script/)
+  })
+})

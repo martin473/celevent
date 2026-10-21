@@ -2,6 +2,7 @@ import { createServer } from 'node:http'
 import { timingSafeEqual } from 'node:crypto'
 import { feedConfig, feedUri, didDocument, feedSkeleton } from './feed.js'
 import { health, metricsText } from './health.js'
+import { renderDashboard } from './dashboard.js'
 import { kvGet, kvSet } from './store.js'
 import { errMsg } from './log.js'
 
@@ -13,6 +14,7 @@ import { errMsg } from './log.js'
  *   /xrpc/app.bsky.feed.getFeedSkeleton       "Pittsburgh shows this week"
  *   /oauth/client-metadata.json, /oauth/jwks.json   confidential OAuth client
  *   /oauth/login?token=ADMIN_TOKEN, /oauth/callback one-time sign-in for the bot
+ *   /dashboard                                health, runs, lag charts, upcoming shows
  *   /healthz, /metrics                        health check and Prometheus metrics
  *
  * `getOAuthClient` is injected so tests don't need the OAuth library.
@@ -21,7 +23,11 @@ export function createHandler({ db, config, log, getOAuthClient }) {
   const fc = feedConfig(config)
 
   const routes = {
-    'GET /': async () => text(200, 'celevent-bot\n'),
+    'GET /': async () => ({ status: 302, headers: { location: '/dashboard' }, body: '' }),
+
+    'GET /dashboard': async () => ({
+      status: 200, headers: { 'content-type': 'text/html; charset=utf-8' }, body: await renderDashboard(db, config),
+    }),
 
     'GET /healthz': async () => {
       const h = await health(db, config)

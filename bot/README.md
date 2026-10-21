@@ -179,8 +179,26 @@ Jetstream collector, and an HTTP server with:
 | `/xrpc/app.bsky.feed.getFeedSkeleton` | the "Pittsburgh Shows This Week" custom feed |
 | `/oauth/client-metadata.json`, `/oauth/jwks.json` | confidential OAuth client |
 | `/oauth/login?token=…`, `/oauth/callback` | one-time OAuth sign-in for the bot account |
+| `/dashboard` | health, recent runs with lag/duration charts, upcoming shows, discovered sources, latest decisions |
 | `/healthz` | 200 if the last run succeeded within 3 intervals, else 503 |
 | `/metrics` | Prometheus metrics (ingest lag, run failures, reposts, posts) |
+
+### Running the whole thing on your laptop
+
+The feed and hosted OAuth need Bluesky to reach your bot over HTTPS. A tunnel
+gives your laptop a public address:
+
+```bash
+brew install cloudflared
+cloudflared tunnel --url http://localhost:8080     # prints https://<random>.trycloudflare.com
+```
+
+Put that address in `.env` as `PUBLIC_URL`, add `OAUTH_PRIVATE_KEY`
+(`npm run -s oauth-keygen >> .env`) and `ADMIN_TOKEN`, then `npm run serve`
+in a second terminal. The quick-tunnel address changes every time cloudflared
+restarts; when it does, update `PUBLIC_URL`, sign in again at `/oauth/login`,
+and rerun `publish-feed`. A free ngrok account with its one static domain
+avoids that.
 
 ### Hosting it for free
 

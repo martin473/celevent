@@ -26,9 +26,14 @@ export async function health(db, config, now = new Date(), startedAt = PROCESS_S
   // Right after a deploy the first run hasn't finished yet; don't fail the
   // health check (and trigger a restart loop) during that window.
   const uptimeSec = (now - startedAt) / 1000
+  const prev = run ? {
+    last_run_id: Number(run.id),
+    last_run_age_sec: Math.round((now - new Date(run.finished_at ?? run.started_at)) / 1000),
+    ingest_lag_p50_sec: run.stats?.ingest_lag_sec?.p50 ?? null,
+  } : {}
   if (!run || (uptimeSec < maxAgeSec && new Date(run.started_at) < startedAt)) {
     return uptimeSec < maxAgeSec
-      ? { healthy: true, reason: 'starting', uptime_sec: Math.round(uptimeSec) }
+      ? { healthy: true, reason: 'starting', uptime_sec: Math.round(uptimeSec), ...prev }
       : { healthy: false, reason: 'no runs yet' }
   }
   const ageSec = Math.round((now - new Date(run.finished_at ?? run.started_at)) / 1000)
