@@ -1,0 +1,32 @@
+# Fly.io deployment for celevent-bot. Change `app` to a name of your own;
+# the public URL becomes https://<app>.fly.dev (set PUBLIC_URL to it).
+app = "pgh-shows-bot"
+primary_region = "ewr"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+  DRY_RUN = "0"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # The bot's loop runs inside this process, so it must never scale to zero.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  # Fly restarts the machine when /healthz keeps failing (last run failed or
+  # no run finished within 3 loop intervals).
+  [[http_service.checks]]
+    grace_period = "120s"
+    interval = "60s"
+    method = "GET"
+    path = "/healthz"
+    timeout = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

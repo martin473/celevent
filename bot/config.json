@@ -1,0 +1,133 @@
+{
+  "region": {
+    "name": "Pittsburgh, PA",
+    "center": { "lat": 40.4406, "lon": -79.9959 },
+    "timezone": "America/New_York",
+    "location_terms": [
+      "pittsburgh", "pgh", "pittsburg", "412",
+      "lawrenceville", "bloomfield", "east liberty", "oakland", "south side",
+      "strip district", "millvale", "polish hill", "garfield", "regent square",
+      "squirrel hill", "north side", "allentown", "braddock", "homestead",
+      "wilkinsburg", "mt lebanon", "dormont", "sharpsburg"
+    ],
+    "venues": [
+      "Mr. Smalls", "Thunderbird Music Hall", "Spirit Hall",
+      "Spirit Lodge",
+      "Club Cafe", "Brillobox", "Bottlerocket Social Hall", "Stage AE",
+      "Roxian Theatre", "Cattivo", "Starlite Lounge", "Belvedere's",
+      "Mr. Roboto Project", "Black Forge Coffee", "The Government Center",
+      "Byham Theater", "Benedum Center", "Carnegie Music Hall",
+      "Petersen Events Center", "PPG Paints Arena",
+      "The Andy Warhol Museum", "Cafe Verona", "Trace Brewing", "Hambone's"
+    ]
+  },
+
+  "sources": {
+    "follow_bot_follows": true,
+    "accounts": [],
+    "searches": [
+      "pittsburgh show",
+      "pgh show",
+      "pittsburgh tonight",
+      "live music pittsburgh",
+      "pittsburgh concert",
+      "#pghmusic",
+      "#pittsburghmusic",
+      "#calevent"
+    ],
+    "search_venue_names": true,
+    "lookback_hours": 72,
+    "max_pages_per_source": 3,
+    "include_replies": false
+  },
+
+  "prefilter": {
+    "min_score": 2,
+    "trusted_min_score": 1,
+    "block_terms": ["giveaway", "for sale", "obituary", "lost dog", "#nsfw"],
+    "blocked_labels": ["!hide", "!warn", "porn", "sexual", "nudity", "graphic-media", "spam"]
+  },
+
+  "review": {
+    "model": "claude-haiku-5-5",
+    "ollama_model": "gpt-oss:20b",
+    "event_kinds": "live music shows: concerts, gigs, DJ nights, and showcases with a specific date",
+    "batch_size": 100,
+    "min_confidence": 0.75,
+    "window_days": 21,
+    "max_attempts": 3
+  },
+
+  "repost": {
+    "max_per_run": 10,
+    "max_per_day": 40,
+    "dry_run": true
+  },
+
+  "jetstream": {
+    "endpoint": "wss://jetstream2.us-east.bsky.network/subscribe",
+    "checkpoint_seconds": 10,
+    "rewind_seconds": 5
+  },
+
+  "discover": {
+    "aggregators": [
+      "Pittsburgh City Paper",
+      "91.3 WYEP",
+      "NEXTpittsburgh",
+      "WESA",
+      "Pittsburgh Magazine"
+    ],
+    "min_confidence": 0.7,
+    "active_within_days": 30,
+    "refresh_days": 30,
+    "max_steps": 6,
+    "concurrency": 4,
+    "auto_follow": true
+  },
+
+  "scrape": {
+    "enabled": true,
+    "interval_hours": 12,
+    "post_within_days": 7,
+    "max_posts_per_run": 15,
+    "max_posts_per_day": 60,
+    "max_page_chars": 20000,
+    "delay_ms": 2000,
+    "respect_robots": false,
+    "user_agent": "celevent-bot/0.1 (+https://github.com/martin473/celevent)",
+    "extra_pages": [],
+    "guide_pages": [
+      "https://www.pghcitypaper.com/arts-entertainment-2/the-big-pittsburgh-october-event-guide/"
+    ],
+    "guide_max_age_days": 21,
+    "max_guides_per_run": 10,
+    "max_guide_chars": 40000
+  },
+
+  "ticketmaster": {
+    "radius_miles": 20,
+    "days_ahead": 30
+  },
+
+  "feed": {
+    "rkey": "pgh-shows",
+    "days": 7,
+    "display_name": "PGH Shows This Week",
+    "description": "Upcoming live music in Pittsburgh over the next 7 days, from venues, bands, and local press. Curated by an LLM-vetted bot."
+  },
+
+  "alerts": {
+    "cooldown_minutes": 60,
+    "ingest_lag_p50_sec": 7200,
+    "source_error_ratio": 0.5
+  },
+
+  "serve": {
+    "jetstream": false
+  },
+
+  "loop": {
+    "interval_minutes": 20
+  }
+}
