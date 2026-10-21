@@ -20,12 +20,16 @@ export async function collect({ db, bsky, config, log, now = new Date() }) {
     resolveAccounts({ bsky, config, log }),
   )
   const trustedDids = new Set(accounts.map((a) => a.did))
+  const guideWatch = await aggregatorSites(db)
 
   const ingest = async (posts, source) => {
     for (const post of posts) {
       const c = fromPostView(post, source)
       if (!c.uri || !c.cid || !c.authorDid) continue
       stats.seen++
+      if (guideWatch.has(c.authorDid)) {
+        if (await maybeQueueGuide(db, post, guideWatch.get(c.authorDid))) stats.guides_queued = (stats.guides_queued ?? 0) + 1
+      }
       const verdict = prefilter(c, { config, regionRe, trustedDids, now })
       const inserted = await upsertCandidate(db, {
         ...c,
@@ -99,6 +103,42 @@ export async function collect({ db, bsky, config, log, now = new Date() }) {
   }
 
   return { stats, lagsSec }
+}
+
+// Words that suggest a linked article is an event listing worth scraping.
+const GUIDE_WORDS = /\b(events?|guide|things to do|this weekend|weekend|calendar|concerts?|shows?|live music|lineups?|festivals?|what'?s happening|picks)\b/i
+
+/** Followed aggregators (did -> website host), from discovery. */
+async function aggregatorSites(db) {
+  try {
+    const { rows } = await db.query(`select did, website from directory where kind = 'aggregator' and did is not null`)
+    const m = new Map()
+    for (const r of rows) {
+      try { m.set(r.did, r.website ? new URL(r.website).hostname.replace(/^www\./, '') : null) } catch { m.set(r.did, null) }
+    }
+    return m
+  } catch {
+    return new Map() // directory table not migrated yet
+  }
+}
+
+/**
+ * When a followed aggregator links an event guide on its own site, queue the
+ * page for scraping. The post itself usually covers dozens of shows at once,
+ * so the review step rightly rejects it as "not a specific event".
+ */
+async function maybeQueueGuide(db, post, siteHost) {
+  const ext = post.embed?.external ?? post.record?.embed?.external
+  if (!ext?.uri) return false
+  let host
+  try { host = new URL(ext.uri).hostname.replace(/^www\./, '') } catch { return false }
+  if (siteHost && host !== siteHost && !host.endsWith('.' + siteHost)) return false
+  if (!GUIDE_WORDS.test(`${ext.title ?? ''} ${ext.description ?? ''} ${post.record?.text ?? ''}`)) return false
+  const { rows } = await db.query(
+    `insert into guide_pages (url, source, title) values ($1, $2, $3) on conflict do nothing returning url`,
+    [ext.uri, `bsky:${post.author?.handle ?? post.author?.did}`, (ext.title ?? '').slice(0, 300)],
+  )
+  return rows.length === 1
 }
 
 /**

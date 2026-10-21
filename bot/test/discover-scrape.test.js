@@ -308,3 +308,58 @@ test('a repost is skipped when the bot already posted that event from the websit
   const { stats } = await repostAccepted({ db, bsky, config, log: memoryLogger(), today: '2026-10-21', now: NOW })
   assert.equal(stats.reposted, 0)
 })
+
+test('guide pages: events at many venues, local music only, linked back to the guide', { skip }, async () => {
+  const guideUrl = 'https://paper.example/october-guide/'
+  const config = testConfig({ repost: { dry_run: false }, scrape: { guide_pages: [guideUrl], post_within_days: 10 } })
+  const fetchImpl = async (url) => url.endsWith('/robots.txt')
+    ? { ok: true, status: 200, text: async () => 'User-agent: *\nDisallow: /admin' }
+    : { ok: true, status: 200, text: async () => '<article><h2>Oct 24: Speedy Ortiz at Mr. Smalls</h2></article>' }
+  const createMessage = async (body) => {
+    assert.match(body.system, /event guide or listings article/)
+    return { content: [{ type: 'tool_use', name: 'record_events', input: { events: [
+      { title: 'Speedy Ortiz', headliner: 'Speedy Ortiz', date: '2026-10-24', venue: 'Mr. Smalls Theatre', is_music: true, is_local: true },
+      { title: 'Pumpkin Fest', date: '2026-10-25', venue: 'Hartwood Acres', is_music: false, is_local: true },
+      { title: 'Cleveland show', date: '2026-10-25', venue: 'Beachland Ballroom', is_music: true, is_local: false },
+      { title: 'Venue-less thing', date: '2026-10-26', venue: '', is_music: true, is_local: true },
+    ] } }] }
+  }
+  const posts = []
+  const bsky = { post: async (p) => { posts.push(p); return 'at://did:plc:bot/app.bsky.feed.post/1' } }
+  const stats = await scrapeAndPost({ db, bsky, config, log: memoryLogger(), createMessage, fetchImpl, now: NOW, sleep: async () => {} })
+  assert.equal(stats.guides, 1)
+  assert.equal(stats.events_new, 2) // Speedy + Pumpkin Fest (non-music, kept but not posted)
+  assert.equal(posts.length, 1)
+  assert.match(posts[0].text, /📍 Mr\. Smalls Theatre/)
+  assert.equal(posts[0].link.uri, guideUrl) // no event link, so credit the guide
+  // The same show reviewed from a Bluesky post would share this event key.
+  const { rows } = await db.query('select event_key from scraped_events where title = $1', ['Speedy Ortiz'])
+  assert.equal(rows[0].event_key, eventKeyFor({ date: '2026-10-24', venue: 'Mr. Smalls', headliner: 'Speedy Ortiz' }, config.region.venues))
+})
+
+test('links to event guides posted by followed aggregators are queued for scraping', { skip }, async () => {
+  const { collect } = await import('../src/collect.js')
+  const { postView } = await import('./helpers.js')
+  await db.query(`insert into directory (name, kind, did, handle, website) values ('City Paper', 'aggregator', 'did:plc:paper', 'paper.example', 'https://www.paper.example')`)
+  const mk = (title, uri) => {
+    const p = postView({ did: 'did:plc:paper', handle: 'paper.example', text: 'new from us', createdAt: new Date(NOW - 36e5) })
+    p.embed = { $type: 'app.bsky.embed.external#view', external: { uri, title, description: '' } }
+    return p
+  }
+  const posts = [
+    mk('The big Pittsburgh October event guide', 'https://www.paper.example/arts/october-event-guide/'),
+    mk('City council passes budget', 'https://www.paper.example/news/budget/'),
+    mk('Best concerts this weekend', 'https://elsewhere.example/concerts'), // off-site: ignored
+  ]
+  const bsky = {
+    did: 'did:plc:bot',
+    getFollows: async () => ({ follows: [{ did: 'did:plc:paper', handle: 'paper.example' }] }),
+    getAuthorFeed: async () => ({ posts }),
+    searchPosts: async () => ({ posts: [] }),
+  }
+  const config = testConfig({ sources: { searches: [] } })
+  const { stats } = await collect({ db, bsky, config, log: memoryLogger(), now: NOW })
+  assert.equal(stats.guides_queued, 1)
+  const { rows } = await db.query('select url, source from guide_pages')
+  assert.deepEqual(rows, [{ url: 'https://www.paper.example/arts/october-event-guide/', source: 'bsky:paper.example' }])
+})
