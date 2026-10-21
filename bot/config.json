@@ -80,7 +80,8 @@
     "min_confidence": 0.7,
     "active_within_days": 30,
     "refresh_days": 30,
-    "max_steps": 8,
+    "max_steps": 6,
+    "concurrency": 4,
     "auto_follow": true
   },
 

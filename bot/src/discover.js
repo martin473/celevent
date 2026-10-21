@@ -220,14 +220,26 @@ export async function discoverAll({ db, bsky, ollama, config, log, force = false
   const fresh = new Set(rows.map((r) => r.name))
   const stats = { targets: targets.length, checked: 0, skipped_fresh: 0, found: 0, followed: 0, scrape: 0, errors: 0 }
 
-  for (const target of targets) {
-    if (!force && fresh.has(target.name)) { stats.skipped_fresh++; continue }
-    const row = await discoverOne({ db, bsky, ollama, config, log, target, fetchImpl })
-    stats.checked++
-    if (!row) { stats.errors++; continue }
-    if (row.did) stats.found++
-    if (row.scrape) stats.scrape++
+  const todo = targets.filter((t) => force || !fresh.has(t.name))
+  stats.skipped_fresh = targets.length - todo.length
+  log.info('discover starting', { to_check: todo.length, concurrency: dc.concurrency ?? 4 })
+
+  // Several targets at once: each one is mostly waiting on the model.
+  let next = 0
+  const worker = async () => {
+    while (next < todo.length) {
+      const target = todo[next++]
+      const row = await discoverOne({ db, bsky, ollama, config, log, target, fetchImpl })
+      stats.checked++
+      if (!row) stats.errors++
+      else {
+        if (row.did) stats.found++
+        if (row.scrape) stats.scrape++
+      }
+      process.stderr.write(`discover ${stats.checked}/${todo.length}  ${target.name}: ${row ? (row.did ? '@' + row.handle : row.events_url ? 'site ' + row.events_url : 'nothing found') : 'error'}\n`)
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(dc.concurrency ?? 4, todo.length) }, worker))
   const { rows: f } = await db.query('select count(*)::int as n from directory where followed_at is not null')
   stats.followed = f[0].n
   log.info('discover summary', stats)

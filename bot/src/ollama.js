@@ -3,7 +3,7 @@
  * Ollama's hosted web search and web fetch (these need OLLAMA_API_KEY and
  * always go to ollama.com, even if chat runs on a local daemon).
  */
-export function ollamaApi({ host = 'https://ollama.com', apiKey, fetchImpl = fetch, sleep }) {
+export function ollamaApi({ host = 'https://ollama.com', apiKey, fetchImpl = fetch, sleep, timeoutMs = 90_000 }) {
   const wait = sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)))
   const base = host.replace(/\/+$/, '')
 
@@ -11,6 +11,7 @@ export function ollamaApi({ host = 'https://ollama.com', apiKey, fetchImpl = fet
     let lastErr
     for (let attempt = 0; attempt < 4; attempt++) {
       const res = await fetchImpl(url, {
+        signal: AbortSignal.timeout(timeoutMs),
         method: 'POST',
         headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
         body: JSON.stringify(body),
