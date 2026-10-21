@@ -42,6 +42,7 @@ export function loadConfig({ env = process.env, file } = {}) {
     publicUrl: env.PUBLIC_URL,
     adminToken: env.ADMIN_TOKEN,
     alertWebhookUrl: env.ALERT_WEBHOOK_URL,
+    ticketmasterApiKey: env.TICKETMASTER_API_KEY,
     port: Number(env.PORT ?? 8080),
     jetstream: env.JETSTREAM != null ? truthy(env.JETSTREAM) : undefined,
   }

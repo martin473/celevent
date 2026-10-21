@@ -163,7 +163,10 @@ async function main([cmd, ...args]) {
       case 'scrape': {
         const { scrapeAndPost } = await import('./scrape.js')
         const bsky = await connectBluesky({ db, config, log })
-        const stats = await scrapeAndPost({ db, bsky, config, log, createMessage: llmClient(config.env), force: true })
+        // `npm run scrape -- ticketmaster` refreshes only Ticketmaster (no venue sites or guides).
+        const only = args.includes('ticketmaster') ? 'ticketmaster' : null
+        if (only && !config.env.ticketmasterApiKey) throw new Error('set TICKETMASTER_API_KEY in .env')
+        const stats = await scrapeAndPost({ db, bsky, config, log, createMessage: llmClient(config.env), force: true, only })
         log.info('scrape summary', stats)
         break
       }

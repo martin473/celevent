@@ -84,6 +84,16 @@ headliner, with venue names normalized). Following and posting both obey
 `DRY_RUN`. Add pages discovery misses with `scrape.extra_pages`:
 `[{ "venue": "Mr. Smalls", "url": "https://..." }]`.
 
+## Ticketmaster (big venues)
+
+Set `TICKETMASTER_API_KEY` (free at developer.ticketmaster.com) and each
+scrape also pulls every music event Ticketmaster/Live Nation sells within
+`ticketmaster.radius_miles` of `region.center`, for the next
+`ticketmaster.days_ahead` days. That covers the big rooms whose own sites
+load listings with JavaScript. Parking, VIP packages, duplicate ticket tiers,
+and cancelled shows are dropped. `npm run scrape -- ticketmaster` refreshes
+only this source.
+
 ## Choosing what it watches
 
 Everything is in `config.json`:

@@ -372,3 +372,55 @@ test('respect_robots: false skips the robots.txt check entirely', { skip }, asyn
   assert.equal(stats.pages_fetched, 1)
   assert.equal(site.requests.filter((r) => r.url.endsWith('/robots.txt')).length, 0)
 })
+
+test('geohash matches the reference implementation', async () => {
+  const { geohash } = await import('../src/ticketmaster.js')
+  assert.equal(geohash(57.64911, 10.40744, 11), 'u4pruydqqvj')
+})
+
+test('ticketmaster events: add-ons, cancellations, and duplicate tiers dropped; paging stops', { skip }, async () => {
+  const { fetchTicketmasterEvents } = await import('../src/ticketmaster.js')
+  const ev = (name, date, venue, extra = {}) => ({
+    name, url: `https://tm.example/${encodeURIComponent(name)}`,
+    dates: { start: { localDate: date, localTime: '19:30:00' }, status: { code: 'onsale' }, ...extra.dates },
+    classifications: [{ segment: { name: extra.segment ?? 'Music' } }],
+    _embedded: { venues: [{ name: venue }], attractions: [{ name: name.split(' w/')[0] }] },
+  })
+  const pages = [
+    { _embedded: { events: [
+      ev('Periphery', '2026-10-29', 'Roxian Theatre'),
+      ev('Periphery', '2026-10-29', 'Roxian Theatre'),               // second ticket tier
+      ev('Periphery - VIP Package', '2026-10-29', 'Roxian Theatre'),
+      ev('Stage AE Parking', '2026-10-30', 'Stage AE'),
+    ] }, page: { totalPages: 2 } },
+    { _embedded: { events: [
+      ev('Old Show', '2026-10-31', 'Stage AE', { dates: { status: { code: 'cancelled' } } }),
+      ev('Speedy Ortiz w/ Dazy', '2026-10-24', 'Mr. Smalls Theatre'),
+    ] }, page: { totalPages: 2 } },
+  ]
+  const urls = []
+  const fetchImpl = async (url) => { urls.push(url); return { ok: true, status: 200, json: async () => pages[urls.length - 1] } }
+  const events = await fetchTicketmasterEvents({ apiKey: 'k', config: testConfig(), today: '2026-10-21', fetchImpl, sleep: async () => {} })
+  assert.equal(urls.length, 2)
+  const q = new URL(urls[0]).searchParams
+  assert.equal(q.get('classificationName'), 'music')
+  assert.equal(q.get('startDateTime'), '2026-10-21T00:00:00Z')
+  assert.equal(q.get('geoPoint').length, 7)
+  assert.deepEqual(events.map((e) => e.title), ['Periphery', 'Speedy Ortiz w/ Dazy'])
+  assert.equal(events[0].time, '7:30 PM')
+
+  // Saved through the normal path, so it dedupes against reviews and venue scrapes.
+  const config = testConfig({ repost: { dry_run: false } })
+  config.env.ticketmasterApiKey = 'k'
+  let n = 0
+  const tmFetch = async (url) => {
+    if (!url.startsWith('https://app.ticketmaster.com')) return { ok: true, status: 200, text: async () => '' }
+    return { ok: true, status: 200, json: async () => pages[n++ % 2] }
+  }
+  const posts = []
+  const stats = await scrapeAndPost({ db, bsky: { post: async (p) => { posts.push(p); return 'at://b/p/' + posts.length } }, config, log: memoryLogger(), createMessage: async () => ({ content: [] }), fetchImpl: tmFetch, now: NOW, sleep: async () => {}, only: 'ticketmaster' })
+  assert.equal(stats.ticketmaster_events, 2)
+  assert.equal(stats.venues, 0) // only=ticketmaster skips venue sites
+  assert.equal(posts.length, 1) // Speedy (Oct 24) is within 7 days; Periphery (Oct 29) isn't yet
+  assert.match(posts[0].text, /📍 Mr\. Smalls Theatre/)
+})

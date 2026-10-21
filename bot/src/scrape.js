@@ -1,5 +1,6 @@
 import { eventKeyFor, localToday } from './review.js'
 import { kvGet, kvSet } from './store.js'
+import { fetchTicketmasterEvents } from './ticketmaster.js'
 import { errMsg } from './log.js'
 
 /**
@@ -165,7 +166,7 @@ const graphemes = (s) => [...new Intl.Segmenter().segment(s)].length
  * are injected so tests run offline.
  */
 export async function scrapeAndPost({
-  db, bsky, config, log, createMessage, fetchImpl = fetch, now = new Date(), force = false,
+  db, bsky, config, log, createMessage, fetchImpl = fetch, now = new Date(), force = false, only = null,
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
 }) {
   const sc = config.scrape
@@ -185,7 +186,7 @@ export async function scrapeAndPost({
     const configured = new Set(config.region.venues ?? []) // venues removed from config stop being scraped
     const pages = [...targets.filter((t) => configured.has(t.name)), ...(sc.extra_pages ?? []).map((p) => ({ name: p.venue, events_url: p.url }))]
       .filter((t) => { const k = t.events_url.replace(/\/+$/, '').toLowerCase(); if (seenUrls.has(k)) return false; seenUrls.add(k); return true })
-    for (const t of pages) {
+    for (const t of only === 'ticketmaster' ? [] : pages) {
       stats.venues++
       const span = log.span('scrape.venue', { venue: t.name, url: t.events_url })
       try {
@@ -213,7 +214,7 @@ export async function scrapeAndPost({
        order by first_seen desc limit $2`,
       [sc.guide_max_age_days ?? 21, sc.max_guides_per_run ?? 10],
     )
-    for (const g of guides) {
+    for (const g of only === 'ticketmaster' ? [] : guides) {
       stats.guides = (stats.guides ?? 0) + 1
       const span = log.span('scrape.guide', { url: g.url, source: g.source })
       try {
@@ -230,6 +231,22 @@ export async function scrapeAndPost({
         span.fail(err)
       }
       await sleep(sc.delay_ms)
+    }
+
+    // Ticketmaster: structured listings for the big rooms whose sites need JavaScript.
+    if (config.env.ticketmasterApiKey) {
+      const span = log.span('scrape.ticketmaster')
+      try {
+        const events = await fetchTicketmasterEvents({ apiKey: config.env.ticketmasterApiKey, config, today, fetchImpl, sleep })
+        stats.ticketmaster_events = events.length
+        stats.events_found += events.length
+        const added = await saveEvents(db, events, { venue: null, sourceUrl: 'https://www.ticketmaster.com', config, today })
+        stats.events_new += added
+        span.end({ events: events.length, new: added })
+      } catch (err) {
+        stats.fetch_errors++
+        span.fail(err)
+      }
     }
 
     await kvSet(db, 'scrape:last_run', now.toISOString())

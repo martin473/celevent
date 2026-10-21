@@ -1,6 +1,7 @@
 {
   "region": {
     "name": "Pittsburgh, PA",
+    "center": { "lat": 40.4406, "lon": -79.9959 },
     "timezone": "America/New_York",
     "location_terms": [
       "pittsburgh", "pgh", "pittsburg", "412",
@@ -88,9 +89,9 @@
   "scrape": {
     "enabled": true,
     "interval_hours": 12,
-    "post_within_days": 10,
-    "max_posts_per_run": 5,
-    "max_posts_per_day": 15,
+    "post_within_days": 7,
+    "max_posts_per_run": 15,
+    "max_posts_per_day": 60,
     "max_page_chars": 20000,
     "delay_ms": 2000,
     "respect_robots": false,
@@ -102,6 +103,11 @@
     "guide_max_age_days": 21,
     "max_guides_per_run": 10,
     "max_guide_chars": 40000
+  },
+
+  "ticketmaster": {
+    "radius_miles": 20,
+    "days_ahead": 30
   },
 
   "feed": {
